@@ -423,6 +423,80 @@ class Shard:
 # ---------------------------------------------------------
 # 5. SHARED FIGHTER STATS (squirrel and viper always identical)
 # ---------------------------------------------------------
+def _glow_shape(bd, blobs, line, fill):
+    """Draw a smooth body made of overlapping circles: faint fill plus one neon outline."""
+    shape = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    for (x, y), r in blobs:
+        pygame.draw.circle(shape, (255, 255, 255, 255), (int(x), int(y)), int(r))
+    mask = pygame.mask.from_surface(shape)
+    for comp in mask.connected_components():
+        pts = comp.outline(2)
+        if len(pts) > 2:
+            pygame.draw.polygon(bd, fill, pts)
+            pygame.draw.lines(bd, line, True, pts, 3)
+
+
+def _chain(points, r0, r1, step=6):
+    """Circles along a path, radius going from r0 to r1 (a tapering body or tail)."""
+    out = []
+    for i in range(len(points) - 1):
+        (x0, y0), (x1, y1) = points[i], points[i + 1]
+        n = max(1, int(math.hypot(x1 - x0, y1 - y0) / step))
+        for k in range(n):
+            t = (i + k / n) / (len(points) - 1)
+            out.append(((x0 + (x1 - x0) * k / n, y0 + (y1 - y0) * k / n), r0 + (r1 - r0) * t))
+    out.append((points[-1], r1))
+    return out
+
+
+def make_backdrop():
+    """Faint neon mongoose and viper facing off behind the arena (user, 2026-10-09).
+    Drawn once onto a see-through surface and blitted under the grid every frame."""
+    bd = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    mong = (255, 170, 60, 80)        # mongoose: warm amber
+    mong_fill = (255, 170, 60, 20)
+    vip = (80, 255, 140, 80)         # viper: toxic green
+    vip_fill = (80, 255, 140, 20)
+
+    # --- mongoose, left, facing right: bushy tail, long low body, raised head ---
+    blobs = _chain([(60, 600), (110, 560), (180, 535), (240, 525)], 6, 26)        # tail, thin tip to thick base
+    blobs += _chain([(240, 525), (330, 515), (420, 510)], 44, 42)                  # body
+    blobs += _chain([(420, 505), (470, 470), (510, 440)], 34, 24)                  # neck, raised
+    blobs += _chain([(510, 435), (560, 430), (600, 438)], 24, 7)                   # head to pointed snout
+    blobs += [((515, 410), 11)]                                                    # ear
+    for x0, x1 in ((270, 262), (320, 316), (395, 412), (440, 462)):                # legs
+        blobs += _chain([(x0, 540), (x1, 610)], 11, 8)
+    _glow_shape(bd, blobs, mong, mong_fill)
+    for sx in range(255, 440, 26):                                                 # fur stripes
+        pygame.draw.line(bd, (255, 170, 60, 45), (sx, 482), (sx + 12, 508), 2)
+    pygame.draw.circle(bd, (255, 230, 150, 170), (545, 425), 5)                    # eye
+    pygame.draw.circle(bd, (255, 170, 60, 160), (600, 438), 4)                     # nose
+
+    # --- viper, right, facing left: coils on the ground, neck rising, hood spread ---
+    for i, (rx, ry, r) in reversed(list(enumerate(((165, 52, 22), (125, 40, 19), (85, 28, 16))))):
+        cy = 590 - i * 24                     # bottom coil is the biggest and drawn last (in front)
+        band = pygame.Rect(0, 0, (rx + r) * 2, (ry + r) * 2)
+        band.center = (1010, cy)
+        hole = pygame.Rect(0, 0, (rx - r) * 2, (ry - r) * 2)
+        hole.center = (1010, cy)
+        pygame.draw.ellipse(bd, vip_fill, band, r * 2)
+        pygame.draw.ellipse(bd, vip, band, 3)
+        pygame.draw.ellipse(bd, vip, hole, 3)
+    coils = []
+    coils += _chain([(1010, 540), (990, 470), (950, 420), (890, 395), (835, 392)], 18, 14)   # rising neck
+    coils += _chain([(835, 385), (815, 365), (800, 360)], 26, 18)                            # hood
+    coils += _chain([(835, 400), (815, 420), (800, 422)], 26, 18)
+    coils += _chain([(805, 392), (770, 390), (745, 394)], 20, 12)                            # head
+    _glow_shape(bd, coils, vip, vip_fill)
+    pygame.draw.circle(bd, (255, 80, 80, 190), (775, 384), 5)                      # eye
+    pygame.draw.lines(bd, (255, 80, 110, 140), False, [(735, 395), (708, 398), (695, 390)], 2)  # forked tongue
+    pygame.draw.line(bd, (255, 80, 110, 140), (708, 398), (695, 407), 2)
+    for k in range(7):                                                             # scale diamonds on the coil
+        x = 870 + k * 46
+        pygame.draw.polygon(bd, (80, 255, 140, 45), [(x, 630), (x + 9, 621), (x + 18, 630), (x + 9, 639)])
+    return bd
+
+
 def level_stats(level):
     level = max(1, level)
     return {
@@ -780,6 +854,7 @@ async def main():
     fit_clock = 0
     pygame.display.set_caption(GAME_NAME)
     canvas = pygame.Surface((WIDTH, HEIGHT))
+    backdrop = make_backdrop()
     clock = pygame.time.Clock()
 
     font_hud = pygame.font.SysFont("consolas", 14, bold=True)
@@ -1753,6 +1828,7 @@ async def main():
         # ---------------- RENDER ----------------
         current_level = level_state["level"]
         canvas.fill((9, 12, 22))
+        canvas.blit(backdrop, (0, 0))
 
         for gx in range(0, WIDTH, 80):
             pygame.draw.line(canvas, (18, 25, 42), (gx, 0), (gx, HEIGHT), 1)
