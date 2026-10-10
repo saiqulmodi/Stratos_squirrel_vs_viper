@@ -666,17 +666,18 @@ HOLES = make_holes()
 # Look of the fighters (drawing only, never changes hit sizes or balance)
 MONGOOSE_SCALE = 1.9            # the fighting mongoose: big (user, 2026-10-10: made bigger again)
 MONGOOSE_ORIGIN = 30            # its centre (hit point) is at the shoulders, so the head is where the fight is
-JUNGLE_MONGOOSE_SCALE = 0.8     # the other mongooses wandering in the jungle, smaller
+JUNGLE_MONGOOSE_SCALE = 0.5     # the wild mongooses are babies (user, 2026-10-10: "like children, very small")
 JUNGLE_MONGOOSES = 3
 JUNGLE_SNAKES = 2               # wild vipers roaming the jungle on their own
-JUNGLE_SNAKE_SCALE = 0.8
+JUNGLE_SNAKE_SCALE = 0.5       # baby king cobras
 JUNGLE_SPOT_RANGE = 220         # a wild mongoose and a wild snake this close spot each other and fight to the kill
 JUNGLE_RESPAWN_FRAMES = 300     # a new wild animal turns up every 5 s while the jungle is short of one
 ONLOOKER_KINDS_AT_ONCE = 4      # only 4 other animals on screen, one of each kind (20 kinds in all; user: "keep limited to four to five")...
 ONLOOKER_ALPHA = 165            # other animals are drawn softer so the mongooses and snakes stand out
+ONLOOKER_SIZE = 0.65            # ...and smaller (user, 2026-10-10: "still bigger animals in display")
 ONLOOKER_ROTATE_FRAMES = 1800   # ...and every 30 s one kind wanders off and a different kind comes in
 FLEE_RANGE = 170                # an onlooker runs from a fight that comes this close
-VIPER_SCALE = 1.6               # fighting vipers: thick body, big head...
+VIPER_SCALE = 1.35              # fighting king cobras: a little thinner than before (user), big head...
 VIPER_SEGMENTS = 56             # ...and a tail as long as possible (user, 2026-10-10; was 24, then 36)
 MONGOOSE_COLORS = {                 # fur, dark fur, belly, tail tip
     1: ((140, 124, 98), (80, 68, 52), (198, 182, 150), (45, 38, 30)),     # Indian grey mongoose
@@ -684,10 +685,11 @@ MONGOOSE_COLORS = {                 # fur, dark fur, belly, tail tip
 }
 MONGOOSE_GRIZZLE = [(-24, -8), (-14, -4), (-4, -9), (6, -5), (16, -9), (-18, 2), (-6, 1), (8, 2), (20, -1)]
 VIPER_PALETTES = {
-    "ai": {"style": "chain", "body": (178, 142, 90), "head": (165, 128, 80), "outline": (38, 26, 16),
-           "blotch": (96, 54, 28), "ring": (22, 14, 8), "rim": (236, 222, 186), "tail": None},       # Russell's viper
-    "human": {"style": "bands", "body": (70, 165, 55), "head": (82, 182, 62), "outline": (18, 50, 16),
-              "blotch": (40, 110, 35), "ring": (18, 50, 16), "rim": (200, 235, 120), "tail": (210, 70, 30)},  # green pit viper
+    # King cobras (user, 2026-10-10: "king cobra may be original presentation for snake")
+    "ai": {"style": "cobra", "body": (104, 92, 54), "head": (112, 98, 58), "outline": (34, 30, 18),
+           "blotch": (52, 46, 26), "ring": (34, 30, 18), "rim": (214, 200, 130), "throat": (226, 210, 140), "tail": None},   # olive-brown, cream bands
+    "human": {"style": "cobra", "body": (40, 38, 30), "head": (48, 46, 36), "outline": (12, 12, 10),
+              "blotch": (20, 20, 16), "ring": (12, 12, 10), "rim": (232, 206, 70), "throat": (240, 220, 120), "tail": None},  # black, yellow bands (yours)
 }
 
 # Human vs AI: every human-controlled character gets +10% attack, speed, defense and health
@@ -1083,7 +1085,7 @@ class JungleSnake:
     def draw(self, surface, t):
         if self.hidden:
             if math.sin(t * 0.02 + self.k) > 0.55:          # peeks out of its hole now and then
-                draw_peeking_snake(surface, self.spot, t, self.k)
+                draw_peeking_snake(surface, self.spot, t, self.k, s=0.55)
             return
         self.v.draw(surface)
 
@@ -1885,6 +1887,7 @@ class Onlooker:
     def __init__(self, kind, rnd, from_edge=False):
         self.kind, self.rnd = kind, rnd
         self.draw_fn, self.speed, _n, self.scale, self.rest_range = ONLOOKER_KINDS[kind]
+        self.scale *= ONLOOKER_SIZE
         if from_edge:
             self.x, self.y = rnd.choice((-60.0, WIDTH + 60.0)), rnd.uniform(160, HEIGHT - 110)
         else:
@@ -1983,8 +1986,8 @@ def onlooker_life(animals, kinds_now, rnd, clock, watch, threats=(), call_fn=Non
     animals[:] = [a for a in animals if not a.gone]
 
 
-def draw_peeking_snake(surface, hole, t, k):
-    """A viper waiting in its hole: the head pokes out and the tongue flicks."""
+def draw_peeking_snake(surface, hole, t, k, s=1.0):
+    """A king cobra waiting in its hole: the head pokes out and the tongue flicks (s = size)."""
     hx, hy = hole
     pal = VIPER_PALETTES["ai"]
     ang = -math.pi / 2 + math.sin(t * 0.03 + k) * 0.9           # head turns slowly, looking around
@@ -1993,21 +1996,20 @@ def draw_peeking_snake(surface, hole, t, k):
     cx, cy = hx + cu * out, hy + su * out * 0.5
 
     def H(u, v):
-        return (cx + cu * u - su * v, cy + su * u + cu * v)
+        return (cx + (cu * u - su * v) * s, cy + (su * u + cu * v) * s)
 
-    pygame.draw.circle(surface, pal["outline"], (int(hx), int(hy)), 10)
-    pygame.draw.circle(surface, pal["body"], (int(hx), int(hy)), 8)
+    pygame.draw.circle(surface, pal["outline"], (int(hx), int(hy)), max(2, int(10 * s)))
+    pygame.draw.circle(surface, pal["body"], (int(hx), int(hy)), max(1, int(8 * s)))
     if math.sin(t * 0.11 + k * 2.3) > 0.6:
         red = (215, 30, 60)
         pygame.draw.line(surface, red, H(17, 0), H(25, 0), 2)
         pygame.draw.lines(surface, red, False, [H(29, -3), H(25, 0), H(29, 3)], 2)
-    head = [(16, -3), (18, 0), (16, 3), (9, 7), (1, 9), (-5, 6), (-6, 0), (-5, -6), (1, -9), (9, -7)]
+    head = [(16, -4), (18, 0), (16, 4), (10, 6), (2, 7), (-5, 6), (-7, 0), (-5, -6), (2, -7), (10, -6)]
     pygame.draw.polygon(surface, pal["head"], [H(u, v) for u, v in head])
-    pygame.draw.polygon(surface, pal["outline"], [H(u, v) for u, v in head], 2)
-    pygame.draw.polygon(surface, pal["blotch"], [H(u, v) for u, v in ((10, 0), (1, -6), (-3, -5), (5, 0), (-3, 5), (1, 6))])
+    pygame.draw.polygon(surface, pal["outline"], [H(u, v) for u, v in head], 2 if s >= 0.8 else 1)
+    pygame.draw.line(surface, pal["outline"], H(2, -5), H(2, 5), 1)
     for side in (-1, 1):
-        pygame.draw.circle(surface, (235, 190, 40), H(5, 6 * side), 3)
-        pygame.draw.line(surface, (10, 10, 10), H(4, 6 * side), H(7, 6 * side), 1)
+        pygame.draw.circle(surface, (30, 24, 16), H(9, 4.5 * side), max(1, int(2.2 * s)))
 
 
 # ---------------------------------------------------------
@@ -2263,6 +2265,9 @@ class ViperEnemy(Fighter):
                     vx, vy = frame(idx + 3)
                     for side in (-1, 1):
                         oval(sx - vy * sr * 0.72 * side, sy + vx * sr * 0.72 * side, vx, vy, sr * 0.26, sr * 0.2, pal["blotch"])
+            elif pal["style"] == "cobra":                         # pale crossbands with dark edges
+                oval(x, y, ux, uy, r * 0.22, r * 1.0, pal["blotch"])
+                oval(x, y, ux, uy, r * 0.11, r * 0.97, pal["rim"])
             else:
                 oval(x, y, ux, uy, r * 0.22, r * 0.95, pal["blotch"])
                 oval(x - uy * r * 0.35, y + ux * r * 0.35, ux, uy, r * 0.5, r * 0.12, pal["rim"])
@@ -2283,7 +2288,7 @@ class ViperEnemy(Fighter):
                 pygame.draw.circle(surface, pal["body"], (int(nx), int(ny)), int(r))
             for k in range(2, len(neck) - 2, 5):
                 (nx, ny), r = neck[k]
-                oval(nx, ny, cu, su, r * 0.22, r * 0.9, pal["blotch"])
+                oval(nx, ny, cu, su, r * 0.17, r * 0.95, pal["rim"])
 
         if stand > 0:                                                         # shadow under the raised head
             sh = pygame.Rect(0, 0, int(34 * hs), int(18 * hs))
@@ -2293,6 +2298,21 @@ class ViperEnemy(Fighter):
         def H(u, v):
             u, v = u * hs, v * hs
             return (hx0 + cu * u - su * v, hy0 + su * u + cu * v)
+
+        # The hood: spreads when the cobra stands up to face a mongoose or strikes
+        want = 1.0 if (self.strike_t > 0 or getattr(self, "alert", False)) else 0.0
+        self.hood = getattr(self, "hood", 0.0) + (want - getattr(self, "hood", 0.0)) * 0.15
+        if self.hood > 0.05:
+            hw = 9 + 17 * self.hood
+
+            def hood_ring(w, col, width=0):
+                pts = [H(-11 + 17 * math.cos(a), w * math.sin(a)) for a in [k * math.tau / 20 for k in range(20)]]
+                pygame.draw.polygon(surface, col, pts, width)
+
+            hood_ring(hw + 1.5, pal["outline"])
+            hood_ring(hw, pal["body"])
+            hood_ring(hw * 0.72, pal["rim"], max(1, int(2 * hs)))             # pale band across the hood
+            pygame.draw.polygon(surface, pal["throat"], [H(-2, -4), H(-16, -6 * self.hood - 3), H(-20, 0), H(-16, 6 * self.hood + 3), H(-2, 4)])
 
         if reach > 0.3:                                                       # open mouth and fangs
             pygame.draw.polygon(surface, pal["outline"], [H(18, -9), H(36, -15), H(30, 0), H(36, 15), H(18, 9)])
@@ -2306,16 +2326,17 @@ class ViperEnemy(Fighter):
             red = (215, 30, 60)
             pygame.draw.line(surface, red, H(25, 0), H(36, 0), 2)
             pygame.draw.lines(surface, red, False, [H(41, -4), H(36, 0), H(41, 4)], 2)
-        head = [(24, -4), (26, 0), (24, 4), (14, 10), (2, 13), (-7, 9), (-9, 0), (-7, -9), (2, -13), (14, -10)]
+        # King cobra head: long and rounded, big head shields, round eyes
+        head = [(23, -5), (26, 0), (23, 5), (16, 8), (5, 9), (-6, 8), (-10, 0), (-6, -8), (5, -9), (16, -8)]
         pygame.draw.polygon(surface, pal["head"], [H(u, v) for u, v in head])
         pygame.draw.polygon(surface, pal["outline"], [H(u, v) for u, v in head], 2)
-        pygame.draw.polygon(surface, pal["blotch"], [H(u, v) for u, v in ((15, 0), (1, -9), (-4, -7), (8, 0), (-4, 7), (1, 9))])
+        for a, b in (((3, -7), (3, 7)), ((12, -6), (12, 6)), ((3, 0), (21, 0)), ((-5, -6), (3, -4)), ((-5, 6), (3, 4))):
+            pygame.draw.line(surface, pal["outline"], H(*a), H(*b), 1)                           # head shields
         for side in (-1, 1):
-            pygame.draw.circle(surface, pal["outline"], H(8, 9 * side), int(5 * hs))
-            pygame.draw.circle(surface, (235, 190, 40), H(8, 9 * side), int(4 * hs))
-            pygame.draw.line(surface, (10, 10, 10), H(5.5, 9 * side), H(10.5, 9 * side), 2)    # slit pupil
-            pygame.draw.line(surface, pal["outline"], H(2, 12.5 * side), H(14, 11 * side), 2)   # brow ridge
-            pygame.draw.circle(surface, pal["outline"], H(21, 2.5 * side), 1)                    # nostril
+            pygame.draw.circle(surface, pal["outline"], H(14, 6.5 * side), max(2, int(3.6 * hs)))
+            pygame.draw.circle(surface, (30, 24, 16), H(14, 6.5 * side), max(1, int(2.9 * hs)))
+            pygame.draw.circle(surface, (235, 225, 190), H(14.8, 6 * side), max(1, int(0.9 * hs)))  # round eye, glint
+            pygame.draw.circle(surface, pal["outline"], H(22, 2.5 * side), 1)                        # nostril
 
 # ---------------------------------------------------------
 # 8. MAIN ENGINE LOOP
@@ -3424,6 +3445,8 @@ async def main():
         live = [p for p in players if p.hp > 0]
         for p in live:                                            # fur bristles up when a viper is close or rears up
             p.fluff_target = 1.0 if any(v.strike_t > 0 or math.hypot(v.x - p.x, v.y - p.y) < STRIKE_RANGE + 40 for v in vipers) else 0.0
+        for v in vipers:                                          # cobra spreads its hood facing a mongoose
+            v.alert = any(math.hypot(v.x - p.x, v.y - p.y) < STRIKE_RANGE + 60 for p in live)
         threats = [(p.x, p.y) for p in live] + [(v.x, v.y) for v in vipers]
         onlooker_life(onlookers, kinds_now, jungle_rnd, onlooker_clock, (live[0].x, live[0].y) if live else None, threats, animal_call)
         onlooker_layer.fill((0, 0, 0, 0))
@@ -3435,6 +3458,18 @@ async def main():
         for a in sorted(hide_seek.animals, key=lambda a: a.pos[1]):
             a.draw(canvas, world_t["t"])
 
+        # Strike zone (user, 2026-10-10): a dotted ring on the ground around each fighting cobra at
+        # STRIKE_RANGE - where it stands up, spreads its hood and can strike. Reddish and pulsing
+        # while a mongoose is inside; the player's own cobra shows "STRIKE!" when it can strike now.
+        for v in vipers:
+            inside = any(math.hypot(v.x - p.x, v.y - p.y) < STRIKE_RANGE for p in live)
+            pulse = 1 if inside and (world_t["t"] // 8) % 2 else 0
+            col = (225, 105, 65) if inside else (190, 175, 135)
+            for k in range(56):
+                a = k * math.tau / 56 + world_t["t"] * 0.004
+                pygame.draw.circle(canvas, col, (int(v.x + math.cos(a) * STRIKE_RANGE), int(v.y + math.sin(a) * STRIKE_RANGE)), 2 + pulse)
+
+
         for s in shards:
             s.draw(canvas)
         for p in projectiles:
@@ -3443,11 +3478,14 @@ async def main():
             part.draw(canvas)
         for b in bursts:
             b.draw(canvas)
-        for viper in vipers:
-            viper.draw(canvas)
-        for p in players:
-            if p.hp > 0:
-                p.draw(canvas)
+        # The fighters, nearer one (lower on the screen) in front, so the big mongoose never hides the cobra
+        fighters = [(v.y, 0, i, v) for i, v in enumerate(vipers)] + [(p.y + 20, 1, i, p) for i, p in enumerate(players) if p.hp > 0]
+        for _y, _kind, _i, unit in sorted(fighters, key=lambda f: f[:3]):
+            unit.draw(canvas)
+        for v in vipers:                                          # "STRIKE!" over your own cobra, on top of everything
+            if v.is_player_controlled and v.strike_t <= 0 and v.shot_timer <= 0 and any(math.hypot(v.x - p.x, v.y - p.y) < STRIKE_RANGE for p in live):
+                tag = font_hud.render("STRIKE!", True, (240, 120, 70))
+                canvas.blit(tag, tag.get_rect(center=(int(v.x), int(v.y) - 60)))
 
         # Trees and bushes in front (animals pass behind them), swaying a little
         for surf, (fx, fy), ph, amp in foliage:
