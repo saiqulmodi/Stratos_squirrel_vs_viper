@@ -354,8 +354,17 @@ NATURAL_BUILDERS = {
     "egret_croak": lambda: _mix((0.0, snd_tone(0.3, _glide(260, 200, 0.3), [(1, 1.0), (2, 0.8), (3, 0.6), (5, 0.4)], attack=0.01, curve=1.0), 1.0), (0.0, snd_hiss(0.3, 181, cut=0.3), 0.5)),
     "kite_whistle": lambda: _mix((0.0, snd_tone(0.35, _glide(2000, 2700, 0.3), [(1, 1.0), (2, 0.15)], vib=0.01, attack=0.02, curve=0.6), 1.0),
                                  (0.38, snd_tone(0.5, lambda t: 2600 - 900 * t / 0.5 + 120 * math.sin(TWO_PI * 22 * t), [(1, 1.0)], attack=0.01, curve=1.0), 1.0)),
+    "elephant_trumpet": lambda: snd_tone(1.0, lambda t: 450 + 320 * math.sin(math.pi * min(1.0, t / 0.7)) - 120 * max(0.0, t - 0.7) / 0.3,
+                                        [(k, 1.0 / k ** 0.7) for k in range(1, 9)], seed=201, vib=0.04, attack=0.05, curve=0.8, breath=0.35),
+    "tiger_roar": lambda: _mix((0.0, snd_growl(1.1, 88, 211), 1.0),
+                               (0.0, [v * 3.0 * _env(i / SFX_RATE, 0.18, 1.1, 1.2) for i, v in enumerate(_lowpass(_noise(int(SFX_RATE * 1.1), 212), 0.06))], 0.8)),
+    "bear_huff": lambda: _mix(*[(k * 0.2, [v * 3.0 * _env(i / SFX_RATE, 0.01, 0.12, 1.5) for i, v in enumerate(_lowpass(_noise(int(SFX_RATE * 0.12), 221 + k), 0.1))], 1.0) for k in range(3)],
+                              (0.62, snd_growl(0.3, 112, 225), 0.9)),
+    "croc_bellow": lambda: _mix((0.0, [sum(math.sin(TWO_PI * 55 * k * i / SFX_RATE) / k for k in range(1, 6)) * (0.6 + 0.4 * math.sin(TWO_PI * 12 * i / SFX_RATE)) * _env(i / SFX_RATE, 0.1, 1.0, 1.0)
+                                       for i in range(int(SFX_RATE * 1.0))], 1.0),
+                                (0.8, snd_hiss(0.35, 231, cut=0.35, attack=0.02, curve=1.5), 0.5)),
 }
-AMBIENT_SOUNDS = ("peacock", "deer_bark", "boar_grunt", "lizard_hiss", "tortoise_huff", "hare_thump", "mongoose_chatter", "parakeets",
+AMBIENT_SOUNDS = ("elephant_trumpet", "tiger_roar", "bear_huff", "croc_bellow", "peacock", "deer_bark", "boar_grunt", "lizard_hiss", "tortoise_huff", "hare_thump", "mongoose_chatter", "parakeets",
                   "langur_whoop", "jackal_howl", "porcupine_rattle", "nilgai_snort", "squirrel_chip", "pangolin_sniff", "rooster_crow",
                   "hoopoe_oop", "myna_whistle", "frog_croak", "crow_caw", "egret_croak", "kite_whistle")
 ANIMAL_CALLS = {"peacock": "peacock", "deer": "deer_bark", "boar": "boar_grunt", "lizard": "lizard_hiss",
@@ -363,7 +372,8 @@ ANIMAL_CALLS = {"peacock": "peacock", "deer": "deer_bark", "boar": "boar_grunt",
                 "birds": "parakeets", "parakeets": "parakeets", "egrets": "egret_croak", "crows": "crow_caw", "kite": "kite_whistle",
                 "langur": "langur_whoop", "jackal": "jackal_howl", "porcupine": "porcupine_rattle", "nilgai": "nilgai_snort",
                 "palm_squirrel": "squirrel_chip", "pangolin": "pangolin_sniff", "junglefowl": "rooster_crow", "hoopoe": "hoopoe_oop",
-                "myna": "myna_whistle", "frog": "frog_croak"}
+                "myna": "myna_whistle", "frog": "frog_croak",
+                "elephant": "elephant_trumpet", "tiger": "tiger_roar", "bear": "bear_huff", "crocodile": "croc_bellow"}
 # Attack tool -> its natural sound (P1 and P2 mongooses sound different)
 ATTACK_TUNES = {"sq1_shot": "bite1", "sq1_nova": "fury1", "sq2_shot": "bite2", "sq2_nova": "fury2",
                 "vp_spit": "spit", "vp_burst": "spray", "vp_bite": "strike"}
@@ -661,7 +671,8 @@ JUNGLE_SNAKES = 4               # wild vipers roaming the jungle on their own
 JUNGLE_SNAKE_SCALE = 0.8
 JUNGLE_SPOT_RANGE = 220         # a wild mongoose and a wild snake this close spot each other and fight to the kill
 JUNGLE_RESPAWN_FRAMES = 300     # a new wild animal turns up every 5 s while the jungle is short of one
-ONLOOKER_KINDS_AT_ONCE = 5      # five kinds of other animals in the jungle at a time (16 kinds in all)...
+ONLOOKER_KINDS_AT_ONCE = 4      # only 4 other animals on screen, one of each kind (20 kinds in all; user: "keep limited to four to five")...
+ONLOOKER_ALPHA = 165            # other animals are drawn softer so the mongooses and snakes stand out
 ONLOOKER_ROTATE_FRAMES = 1800   # ...and every 30 s one kind wanders off and a different kind comes in
 FLEE_RANGE = 170                # an onlooker runs from a fight that comes this close
 VIPER_SCALE = 1.3               # fighting vipers: thick body, big head...
@@ -868,6 +879,7 @@ class SquirrelPlayer(Fighter):
         def line(col, a, b, w):
             pygame.draw.line(surface, col, at(*a), at(*b), max(1, int(w * S)))
 
+        detail = S >= 1.0          # small wild mongooses skip the fine strokes (speed; too small to see anyway)
         fluff = getattr(self, "fluff", 0.0)
         fluff += (getattr(self, "fluff_target", 0.0) - fluff) * 0.12      # fur bristles up when a snake is near
         self.fluff = fluff
@@ -894,7 +906,7 @@ class SquirrelPlayer(Fighter):
             circ(outline, lx, ly, r + 1.5)
         for k, ((lx, ly), r) in enumerate(tail):
             circ(tip if k > len(tail) * 0.72 else fur, lx, ly, r)
-        for k in range(0, len(tail) - 2, 2):
+        for k in range(0, len(tail) - 2, 2 if detail else 5):
             (lx, ly), r = tail[k]
             line(dark, (lx, ly - r + 1), (lx - 4, ly - r - 5 * puff), 1.5)
             line(dark, (lx, ly + r - 1), (lx - 4, ly + r + 4 * puff), 1.5)
@@ -907,8 +919,9 @@ class SquirrelPlayer(Fighter):
             line(col, (hx, 6), knee, 8)
             line(col, knee, foot, 6)
             oval(outline, foot[0] + 2, foot[1], 11, 6)
-            for c in (-1.5, 0, 1.5):                                         # claws
-                line((235, 230, 215), (foot[0] + 6, foot[1] + c), (foot[0] + 9, foot[1] + c + 1), 1)
+            if detail:
+                for c in (-1.5, 0, 1.5):                                     # claws
+                    line((235, 230, 215), (foot[0] + 6, foot[1] + c), (foot[0] + 9, foot[1] + c + 1), 1)
 
         leg(-26, -1, dark)          # far legs
         leg(18, 1, dark)
@@ -917,11 +930,11 @@ class SquirrelPlayer(Fighter):
         oval(outline, 0, 0, 84, 34)
         oval(fur, 0, 0, 80, 30)
         oval(light, 2, 7, 62, 13)
-        for lx in range(-34, 24, 6):
+        for lx in range(-34, 24, 6 if detail else 12):
             spike = [(lx, -12), (lx + 2, -20 - ((lx // 6) % 2) * 3 - 7 * fluff), (lx + 6, -12)]
             poly(dark, spike)
             poly(outline, spike, 1)
-        for lx, ly in MONGOOSE_GRIZZLE:
+        for lx, ly in (MONGOOSE_GRIZZLE if detail else ()):
             line(dark, (lx, ly), (lx - 3, ly + 5), 1.5)
             line(light, (lx + 3, ly + 1), (lx + 1, ly + 4), 1)
 
@@ -951,7 +964,7 @@ class SquirrelPlayer(Fighter):
         circ((10, 5, 5), 46, -17, 1.6)
         circ((255, 230, 200), 44, -18, 0.8)
         line(outline, (38, -23), (50, -19), 2.5)                                          # angry brow
-        for dy in (-3, 0, 3):                                                             # whiskers
+        for dy in ((-3, 0, 3) if detail else ()):                                         # whiskers
             line(light, (60, -13), (73, -14 + dy), 0.8)
 
 class JungleMongoose:
@@ -1696,6 +1709,126 @@ def draw_frog(P, t, moving, me):
     Q.line((70, 100, 40), (6, 3), (9, 6), 2)
 
 
+def draw_elephant(P, t, moving, me):
+    step = math.sin(t * 2.0) if moving else 0.0
+    flap = math.sin(t * 0.9 + me.anim_t) * 3
+    swing = math.sin(t * 1.4) * (6 if moving else 3)
+    grey, dark, light = (128, 122, 116), (92, 88, 84), (150, 144, 136)
+    P.oval(SHADOW, 6, 50, 160, 12)
+    P.line(dark, (-56, -12), (-64, 18), 2)                                          # tail with a tuft
+    P.circ((40, 38, 36), -64, 20, 3)
+    for k, (hx, ph) in enumerate(((-38, -1), (26, 1), (-28, 1), (36, -1))):        # pillar legs
+        col = dark if k < 2 else grey
+        fx = hx + step * 6 * ph
+        P.poly(col, [(hx - 9, 10), (hx + 9, 10), (fx + 9, 48), (fx - 9, 48)])
+        for nx in (-5, 0, 5):
+            P.circ((225, 220, 205), fx + nx, 47, 1.6)                              # toenails
+    P.oval(dark, 0, -4, 124, 76)
+    P.oval(grey, 0, -6, 118, 70)
+    P.oval(light, -6, -24, 80, 22)                                                 # sunlit back
+    for wx in (-30, -12, 8, 26):                                                   # wrinkles
+        P.line(dark, (wx, -10), (wx + 3, 12), 1)
+    P.oval(grey, 56, -26, 50, 46)                                                  # head
+    trunk = _chain([(74, -18), (82, 0), (84 + swing * 0.4, 20), (80 + swing, 38)], 9, 4.5, step=3)
+    for (lx, ly), r in trunk:
+        P.circ(dark, lx, ly, r + 1)
+    for (lx, ly), r in trunk:
+        P.circ(grey, lx, ly, r)
+    for k in range(1, len(trunk) - 1, 3):                                          # trunk rings
+        (lx, ly), r = trunk[k]
+        P.line(dark, (lx - r * 0.7, ly), (lx + r * 0.7, ly + 1), 1)
+    P.poly((240, 235, 215), [(68, -6), (74, -8), (88, 6), (84, 10)])               # tusk
+    P.oval(dark, 46 - flap * 0.3, -22, 36 + flap, 50)                              # big ear, flapping
+    P.oval((140, 120, 118), 46 - flap * 0.3, -21, 28 + flap, 42)
+    P.circ((20, 16, 14), 66, -32, 2)
+
+
+def draw_tiger(P, t, moving, me):
+    step = math.sin(t * 2.6) if moving else 0.0
+    orange, dark, white, black = (222, 124, 40), (180, 92, 26), (240, 232, 215), (24, 18, 14)
+    P.oval(SHADOW, 0, 30, 120, 9)
+    tail = _chain([(-44, -6), (-62, -2), (-76, -14), (-80, -30)], 6, 4.5, step=3)
+    for k, ((lx, ly), r) in enumerate(tail):
+        P.circ(black if k > len(tail) - 4 or k % 5 == 0 else orange, lx, ly, r)
+    _legs4(P, step, (-30, 24, -24, 30), 6, 30, 7, dark, orange, hoof=white)
+    P.oval(dark, 0, 0, 96, 38)
+    P.oval(orange, 0, -1, 92, 34)
+    P.oval(white, 4, 11, 66, 10)                                                   # white belly
+    for sx in range(-34, 34, 9):                                                   # black stripes
+        P.poly(black, [(sx, -16), (sx + 4, -16), (sx + 7, -2), (sx + 3, 4), (sx + 2, -4)])
+    P.circ(orange, 48, -12, 16)                                                    # head
+    P.oval(white, 54, -6, 18, 12)                                                  # white cheeks and muzzle
+    for ex in (40, 50):                                                            # ears: black backs, white spot
+        P.circ(black, ex, -26, 5)
+        P.circ(white, ex, -26, 2)
+    for k in range(3):
+        P.line(black, (42 + k * 4, -24), (44 + k * 4, -18), 2)                     # forehead stripes
+    P.oval((215, 120, 120), 63, -10, 6, 4)                                         # nose
+    P.circ((230, 190, 60), 55, -15, 2.2)                                           # amber eye
+    P.circ(black, 55.5, -15, 1)
+    for dy in (-2, 1, 4):                                                          # whiskers
+        P.line(white, (60, -6), (72, -8 + dy), 1)
+
+
+def draw_bear(P, t, moving, me):
+    step = math.sin(t * 2.2) if moving else 0.0
+    black, shade, muzzle = (26, 23, 21), (44, 40, 36), (205, 190, 165)
+    P.oval(SHADOW, 2, 30, 96, 9)
+    _legs4(P, step, (-24, 18, -18, 24), 6, 29, 9, (18, 16, 14), black, hoof=(18, 16, 14))
+    for fx in (-18, 24):                                                           # long pale claws
+        for c in (-2, 0, 2):
+            P.line(muzzle, (fx + step * 5 + 3, 29 + c * 0.6), (fx + step * 5 + 8, 30 + c * 0.6), 1)
+    P.oval(black, 0, -2, 80, 48)
+    for k in range(14):                                                            # shaggy coat
+        a = math.pi * (0.1 + 0.8 * k / 13)
+        x0, y0 = math.cos(a) * 36, -math.sin(a) * 22 - 2
+        P.line(shade, (x0, y0), (x0 - 3, y0 - 7), 2)
+    P.circ(black, 38, -12, 14)
+    P.circ(black, 30, -24, 5)                                                      # round ears
+    P.oval(muzzle, 50, -8, 18, 12)                                                 # pale muzzle
+    P.circ((15, 12, 10), 57, -10, 2.4)
+    P.circ((10, 8, 6), 42, -15, 1.5)
+    P.poly((235, 228, 210), [(28, 2), (34, 10), (40, 2), (34, 6)])                 # white V on the chest
+
+
+def draw_crocodile(P, t, moving, me):
+    step = math.sin(t * 1.8) if moving else 0.0
+    gape = 0.0 if moving else max(0.0, math.sin(t * 0.25 + me.anim_t)) * 12      # basks with its jaws open
+    wave = math.sin(t * 1.2) * (4 if moving else 1)
+    olive, dark, belly = (86, 96, 58), (52, 60, 36), (170, 165, 120)
+    P.oval(SHADOW, -20, 12, 200, 10)
+    tail = _chain([(-40, 0), (-70, 2 + wave), (-100, 4 - wave), (-128, 4 + wave)], 12, 3, step=3)
+    for (lx, ly), r in tail:
+        P.circ(dark, lx, ly, r + 1)
+    for (lx, ly), r in tail:
+        P.circ(olive, lx, ly, r)
+    for k in range(2, len(tail) - 2, 4):                                           # ridge of scutes along the tail
+        (lx, ly), r = tail[k]
+        P.poly(dark, [(lx - 3, ly - r + 1), (lx, ly - r - 4), (lx + 3, ly - r + 1)])
+    for hx, ph in ((-24, 1), (22, -1)):                                            # sprawled legs
+        for side, col in ((-1, dark), (1, olive)):
+            fx = hx + step * 6 * ph * side
+            P.line(col, (hx, 4), (fx, 13), 6)
+            for c in (-2, 0, 2):
+                P.line(dark, (fx, 13), (fx + 4, 14 + c * 0.6), 1)
+    P.oval(dark, 0, 0, 92, 26)
+    P.oval(olive, 0, -1, 88, 22)
+    P.oval(belly, 2, 7, 70, 6)
+    for row in (-6, -1):                                                           # rows of armoured scutes
+        for sx in range(-36, 36, 8):
+            P.oval(dark, sx, row, 6, 4)
+    P.poly(olive, [(40, -6), (86, -4 - gape * 0.4), (88, -1 - gape * 0.3), (42, 2)])          # upper jaw
+    P.poly(olive, [(42, 2), (86, 4 + gape), (84, 7 + gape), (40, 7)])                         # lower jaw
+    if gape > 2:
+        P.poly((200, 170, 140), [(46, 2), (84, -1 - gape * 0.3), (82, 4 + gape)])            # pale mouth inside
+    for k in range(9):                                                                         # teeth
+        x = 48 + k * 4.5
+        P.poly((240, 235, 215), [(x, -1 - gape * 0.3 * (x - 42) / 44), (x + 2, -1 - gape * 0.3 * (x - 42) / 44), (x + 1, 2)])
+    P.circ(dark, 46, -8, 4)                                                                    # raised eye
+    P.circ((200, 180, 60), 46, -9, 2)
+    P.circ((10, 10, 6), 46.5, -9, 1)
+
+
 ONLOOKER_KINDS = {
     # kind: (draw, walk speed, how many, size, rest frames)
     "peacock": (draw_peacock, 1.0, (1, 2), 1.0, (90, 360)),
@@ -1714,7 +1847,12 @@ ONLOOKER_KINDS = {
     "hoopoe": (draw_hoopoe, 1.6, (1, 2), 1.0, (60, 240)),
     "myna": (draw_myna, 1.7, (2, 4), 1.0, (40, 180)),
     "frog": (draw_frog, 1.2, (2, 3), 1.0, (120, 360)),
+    "elephant": (draw_elephant, 0.8, (1, 2), 1.15, (200, 500)),
+    "tiger": (draw_tiger, 1.3, (1, 1), 1.0, (150, 420)),
+    "bear": (draw_bear, 1.0, (1, 2), 1.0, (120, 360)),
+    "crocodile": (draw_crocodile, 0.5, (1, 1), 1.0, (300, 700)),
 }
+FEARLESS = ("elephant", "tiger", "bear", "crocodile")   # big animals never run from the fight; they just watch
 
 
 class Onlooker:
@@ -1769,7 +1907,7 @@ class Onlooker:
             self.moving = True
             self.pick()
             return
-        if not self.leaving:
+        if not self.leaving and self.kind not in FEARLESS:
             for tx, ty in threats:
                 if math.hypot(tx - self.x, ty - self.y) < FLEE_RANGE:
                     self.flee_t, self.flee_from, self.rest = 70, (tx, ty), 0
@@ -1816,8 +1954,7 @@ def onlooker_life(animals, kinds_now, rnd, clock, watch, threats=(), call_fn=Non
         kinds_now.remove(old)
         new = rnd.choice([k for k in ONLOOKER_KINDS if k not in kinds_now and k != old])
         kinds_now.append(new)
-        for _ in range(rnd.randint(*ONLOOKER_KINDS[new][2])):
-            animals.append(Onlooker(new, rnd, from_edge=True))
+        animals.append(Onlooker(new, rnd, from_edge=True))
     for a in animals:
         a.step(watch, threats, call_fn)
     animals[:] = [a for a in animals if not a.gone]
@@ -2184,7 +2321,8 @@ async def main():
     wild_fx = []                       # pieces of wild snakes killed by wild mongooses
     wild_clock = {"t": 0}
     kinds_now = jungle_rnd.sample(list(ONLOOKER_KINDS), ONLOOKER_KINDS_AT_ONCE)
-    onlookers = [Onlooker(k, jungle_rnd) for k in kinds_now for _ in range(jungle_rnd.randint(*ONLOOKER_KINDS[k][2]))]
+    onlookers = [Onlooker(k, jungle_rnd) for k in kinds_now]
+    onlooker_layer = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
     onlooker_clock = {"t": 0}
     world_t = {"t": 0}
     foliage = make_foliage()
@@ -3265,8 +3403,11 @@ async def main():
             p.fluff_target = 1.0 if any(v.strike_t > 0 or math.hypot(v.x - p.x, v.y - p.y) < STRIKE_RANGE + 40 for v in vipers) else 0.0
         threats = [(p.x, p.y) for p in live] + [(v.x, v.y) for v in vipers] + [(m.body.x, m.body.y) for m in jungle if m.foe]
         onlooker_life(onlookers, kinds_now, jungle_rnd, onlooker_clock, (live[0].x, live[0].y) if live else None, threats, animal_call)
-        for a in sorted(onlookers, key=lambda a: a.y):            # the jungle's other animals, watching
-            a.draw(canvas)
+        onlooker_layer.fill((0, 0, 0, 0))
+        for a in sorted(onlookers, key=lambda a: a.y):            # the jungle's other animals, watching (softer)
+            a.draw(onlooker_layer)
+        onlooker_layer.set_alpha(ONLOOKER_ALPHA)
+        canvas.blit(onlooker_layer, (0, 0))
         busy_holes = busy + [s.v.hole for s in wild_snakes if s.v.hole]
         jungle_life(jungle, wild_snakes, wild_fx, particles, jungle_rnd, wild_clock, busy_holes, animal_call)
         for s in wild_snakes:                                     # wild snakes and mongooses, living on their own
