@@ -651,6 +651,9 @@ STRIKE_HOLD = 3           # frames at full reach
 STRIKE_FRAMES = 24        # stand 10, shoot 3, hold 3, pull back 8 (0.4 s)
 STRIKE_HIT_RADIUS = 34    # bite hit size around the striking head (the mongoose is drawn bigger now)
 STRIKE_HEAD_SCALE = 1.7   # head size at full reach
+COIL_RADIUS = 30.0        # facing a mongoose the cobra coils its body (user's picture): coil radius...
+COIL_TURNS = 2.3          # ...turns of the coil...
+COIL_RISE = 22.0          # ...and how high the front of the body is raised off the ground
 
 # Natural fighting (user, 2026-10-10): no lasers or Nova rings. The mongoose leaps and bites,
 # its special is a Fury of bites all around; vipers strike, spit venom drops or spray venom.
@@ -695,14 +698,14 @@ SNAKE_SPOTS = ((15, 15, 15), (215, 35, 35), (240, 205, 40), (45, 165, 60))   # b
 SNAKE_HEAD = 0.4                # head kept big enough to see the hood; still wider than the neck
 VIPER_SEGMENTS = 36             # ...body length (24 -> 36 -> 56, back to 36 when the user found it too heavy)
 MONGOOSE_COLORS = {                 # fur, dark fur, belly, tail tip - bright but natural (user, 2026-10-10: "colourful")
-    1: ((184, 142, 74), (116, 80, 38), (236, 210, 150), (62, 40, 18)),     # golden tawny mongoose
+    1: ((128, 121, 106), (74, 67, 56), (172, 163, 144), (36, 31, 26)),      # grey, grizzled (user's picture)
     2: ((200, 104, 46), (130, 58, 22), (244, 172, 108), (72, 30, 10)),     # bright rufous mongoose
 }
 MONGOOSE_GRIZZLE = [(-24, -8), (-14, -4), (-4, -9), (6, -5), (16, -9), (-18, 2), (-6, 1), (8, 2), (20, -1)]
 VIPER_PALETTES = {
     # King cobras (user, 2026-10-10: "king cobra may be original presentation for snake")
-    "ai": {"style": "cobra", "body": (104, 92, 54), "head": (112, 98, 58), "outline": (34, 30, 18),
-           "blotch": (52, 46, 26), "ring": (34, 30, 18), "rim": (214, 200, 130), "throat": (226, 210, 140), "tail": None},   # olive-brown, cream bands
+    "ai": {"style": "cobra", "body": (172, 152, 112), "head": (160, 140, 102), "outline": (44, 34, 22),
+           "blotch": (72, 56, 38), "ring": (44, 34, 22), "rim": (222, 208, 170), "throat": (236, 226, 200), "tail": None},  # sandy tan, dark bands (user's picture)
     "human": {"style": "cobra", "body": (40, 38, 30), "head": (48, 46, 36), "outline": (12, 12, 10),
               "blotch": (20, 20, 16), "ring": (12, 12, 10), "rim": (232, 206, 70), "throat": (240, 220, 120), "tail": None},  # black, yellow bands (yours)
 }
@@ -865,6 +868,9 @@ class SquirrelPlayer(Fighter):
             self.anim_t += 0.3
         if self.jump_cd > 0:
             self.jump_cd -= 1
+        if self.jump_t == JUMP_FRAMES - 1 or self.jump_t == 1:   # take-off and landing kick up dust (picture)
+            self.dust = [(self.x + random.uniform(-14, 14), self.y + 12, random.uniform(-1.2, 1.2), random.uniform(-1.0, -0.2), 26)
+                         for _ in range(10)] + getattr(self, "dust", [])
         if self.jump_t > 0:
             self.jump_t -= 1
             self.x = max(50, min(WIDTH - 50, self.x + self.jump_v[0]))
@@ -960,7 +966,14 @@ class SquirrelPlayer(Fighter):
                 px, py = last[0] + (self.x - last[0]) * k / 6, last[1] + (self.y - last[1]) * k / 6
                 pygame.draw.circle(surface, (150, 126, 90), (int(px), int(py + 12 * S)), max(1, int((1 + k * 0.5) * S)))
         wave = math.sin(self.anim_t * 1.3)
-        jaw = 7 if self.lunge_t > 0 or self.fury_t > 0 else 2     # jaws wide open while biting
+        pounce = lift > 0 or self.lunge_t > 0                       # leaping or biting: the pose in the user's picture
+        jaw = 7 if pounce or self.fury_t > 0 else 2                 # jaws wide open while leaping / biting
+        dust = []
+        for dx_, dy_, vx_, vy_, life in getattr(self, "dust", []):         # dust clouds from take-off / landing
+            if life > 0:
+                pygame.draw.circle(surface, (150, 128, 96), (int(dx_), int(dy_)), max(1, int(2 + (26 - life) * 0.18)))
+                dust.append((dx_ + vx_, dy_ + vy_, vx_ * 0.94, vy_ * 0.94, life - 1))
+        self.dust = dust
         if self.fury_t > 0:                                         # Fury: dust kicked up all around
             for k in range(10):
                 a = self.anim_t * 2.0 + k * math.tau / 10
@@ -992,15 +1005,18 @@ class SquirrelPlayer(Fighter):
 
         def leg(hx, phase, col):
             sw = stride * 7 * phase
-            if lift:                                                          # in a leap: front legs reach, hind legs kick back
-                sw = 6 if hx > 0 else -6
-            knee, foot = (hx + sw * 0.4, yt + 6), (hx + sw, yt + 12)          # short legs, like a real mongoose
+            if pounce:                                                        # front legs reach out, hind legs kick back
+                sw = 11 if hx > 0 else -9
+            knee, foot = (hx + sw * 0.4, yt + 6), (hx + sw, yt + (8 if pounce and hx > 0 else 12))   # short legs, like a real mongoose
             line(outline, (hx, yt), knee, 2.4)                               # slim legs, never thicker than the body
             line(outline, knee, foot, 2.0)
             line(col, (hx, yt), knee, 1.4)
             line(col, knee, foot, 1.1)
             oval(outline, foot[0] + 1.5, foot[1], 5, 2.5)
-            if detail:
+            if pounce and hx > 0:                                            # claws spread wide, reaching for the snake
+                for c in (-1.6, 0, 1.6):
+                    line((235, 230, 215), (foot[0] + 3, foot[1]), (foot[0] + 8, foot[1] + c * 1.8), 0.7)
+            elif detail:
                 for c in (-1, 0, 1):                                         # claws
                     line((235, 230, 215), (foot[0] + 5, foot[1] + c), (foot[0] + 8, foot[1] + c + 0.6), 0.7)
 
@@ -1017,6 +1033,9 @@ class SquirrelPlayer(Fighter):
             poly(outline, spike, 1)
         for lx, _ly in (MONGOOSE_GRIZZLE if detail and B >= 2 else ()):
             line(dark, (lx, -B * 0.6), (lx - 2, B * 0.3), 0.8)
+        if detail and B < 2:                                        # grizzled coat: pepper-and-salt flecks (user's picture)
+            for k, lx in enumerate(range(-36, 30, 4)):
+                surface.set_at(at(lx, -B * 0.4 + (k % 2) * B * 0.5), dark if k % 3 else light)
 
         leg(-20, 1, fur)            # near legs
         leg(24, -1, fur)
@@ -1052,12 +1071,12 @@ class SquirrelPlayer(Fighter):
         snout = [(50, -22), (66, -15), (68, -11), (52, -8)]
         hpoly(fur, snout)
         hpoly(outline, snout, 1)
-        hcirc((30, 22, 22), 67, -13, 3)                                                   # nose
+        hcirc((196, 92, 82), 67, -13, 3)                                                  # pink-red nose
         hcirc(outline, 31, -24, 5.5)                                                      # ear
         hcirc(dark, 31, -24, 4.5)
         hcirc(light, 31, -23, 2)
         hcirc(outline, 45, -17, 4.2)                                                      # red eye
-        hcirc((235, 70, 25), 45, -17, 3.2)
+        hcirc((226, 128, 34), 45, -17, 3.2)                                             # natural amber eye
         hcirc((10, 5, 5), 46, -17, 1.6)
         hline(outline, (38, -23), (50, -19), 2.5)                                         # angry brow
         for dy in ((-3, 0, 3) if detail else ()):                                         # whiskers
@@ -2261,12 +2280,37 @@ class ViperEnemy(Fighter):
         self.y = max(50, min(HEIGHT - 50, self.y + dy * self.base_speed))
         self._push_history()
 
+    def shaped_history(self):
+        """The body's centre line. Facing a mongoose (user's picture) the cobra pulls its body into a coil
+        behind its head; self.coil (0..1, eased in draw()) blends the crawl trail into that coil."""
+        c = getattr(self, "coil", 0.0)
+        if c < 0.02 or self.hole:
+            return self.history
+        key = (self.history[0], self.history[-1], len(self.history), round(c, 3), self.heading)
+        if getattr(self, "_coil_key", None) == key:
+            return self._coil_pts
+        S = getattr(self, "scale", VIPER_SCALE)
+        n = self.num_segments * 3
+        rc = COIL_RADIUS * S
+        ca, sa = math.cos(self.heading), math.sin(self.heading)
+        cx, cy = self.x - ca * rc, self.y - sa * rc
+        out = []
+        for k, (px, py) in enumerate(self.history):
+            t = min(1.0, k / n)
+            th = self.heading + t * COIL_TURNS * math.tau
+            r = rc * (1.0 - 0.62 * t)
+            qx, qy = cx + math.cos(th) * r, cy + math.sin(th) * r
+            out.append((px + (qx - px) * c, py + (qy - py) * c))
+        self._coil_key, self._coil_pts = key, out
+        return out
+
     def segment_points(self):
         """(x, y, radius, index) of every body/tail segment, exactly where draw() puts them."""
         pts = []
+        hist = self.shaped_history()
         for i in range(1, self.num_segments):
-            idx = min(len(self.history) - 1, i * 3)
-            sx, sy = self.history[idx]
+            idx = min(len(hist) - 1, i * 3)
+            sx, sy = hist[idx]
             ratio = 1.0 - (i / self.num_segments)
             pts.append((sx, sy, int(max(3, (7 + ratio * 8) * self.tail_scale)), i))
         return pts
@@ -2297,10 +2341,12 @@ class ViperEnemy(Fighter):
         green pit viper with a red tail tip, so players can always tell their own snake apart."""
         pal = self.palette()
         n = self.num_segments * 3
+        want = 1.0 if getattr(self, "alert", False) else 0.0          # coils up facing a mongoose (user's picture)
+        self.coil = getattr(self, "coil", 0.0) + (want - getattr(self, "coil", 0.0)) * 0.08
 
         # Smooth centre line, a point every ~3 px from the head back to the tail tip
         path, prev = [], None
-        for k, (px, py) in enumerate(self.history[:n]):
+        for k, (px, py) in enumerate(self.shaped_history()[:n]):
             t = k / n
             if prev is None:
                 path.append((px, py, t))
@@ -2390,7 +2436,12 @@ class ViperEnemy(Fighter):
         hs = getattr(self, "scale", VIPER_SCALE) * SNAKE_HEAD * max(1.0 + 0.35 * stand, 1.0 + (STRIKE_HEAD_SCALE - 1.0) * reach)   # raised head looks bigger
         ang = self.strike_ang if self.strike_t > 0 else self.heading
         cu, su = math.cos(ang), math.sin(ang)
-        hx0, hy0 = self.x + cu * ext, self.y + su * ext
+        rise = COIL_RISE * getattr(self, "scale", VIPER_SCALE) * self.coil   # front of the body raised off the coil
+        hx0, hy0 = self.x + cu * ext, self.y + su * ext - rise
+        if rise > 2:                                                          # raised neck, up from the coil
+            nw = 4 if self.body_radius(0.0) < 2.5 else max(4, int(self.body_radius(0.0) * 2 + 3))
+            pygame.draw.line(surface, pal["outline"], (self.x, self.y), (self.x + cu * ext * 0.3, self.y - rise), nw)
+            pygame.draw.line(surface, pal["throat"], (self.x, self.y), (self.x + cu * ext * 0.3, self.y - rise), max(2, nw - 2))
         if ext > 2 and self.body_radius(0.0) < 2.5:                          # slim neck stretched out in a strike
             pygame.draw.line(surface, pal["outline"], (self.x, self.y), (hx0, hy0), 5)
             pygame.draw.line(surface, pal["body"], (self.x, self.y), (hx0, hy0), 3)
@@ -2404,9 +2455,9 @@ class ViperEnemy(Fighter):
                 (nx, ny), r = neck[k]
                 oval(nx, ny, cu, su, max(0.9, r * 0.25), r * 0.95, pal["rim"])
 
-        if stand > 0:                                                         # shadow under the raised head
+        if stand > 0 or rise > 2:                                             # shadow under the raised head
             sh = pygame.Rect(0, 0, int(34 * hs), int(18 * hs))
-            sh.center = (int(hx0 + 6), int(hy0 + 10 * stand))
+            sh.center = (int(hx0 + 6), int(hy0 + rise + 10 * stand))
             pygame.draw.ellipse(surface, (8, 8, 14), sh)
 
         def H(u, v):
@@ -2428,14 +2479,16 @@ class ViperEnemy(Fighter):
             hood_ring(hw * 0.72, pal["rim"], max(1, int(2 * hs)))             # pale band across the hood
             pygame.draw.polygon(surface, pal["throat"], [H(-2, -4), H(-16, -6 * self.hood - 3), H(-20, 0), H(-16, 6 * self.hood + 3), H(-2, 4)])
 
-        if reach > 0.3:                                                       # open mouth and fangs
+        gape = reach > 0.3 or (self.hood > 0.6 and self.coil > 0.5)           # strikes, or gapes in threat (user's picture)
+        if gape:                                                              # open mouth and fangs
             pygame.draw.polygon(surface, pal["outline"], [H(18, -9), H(36, -15), H(30, 0), H(36, 15), H(18, 9)])
             pygame.draw.polygon(surface, (200, 40, 70), [H(19, -7), H(34, -13), H(28, 0), H(34, 13), H(19, 7)])
             for side in (-1, 1):
+                pygame.draw.circle(surface, (225, 235, 150), H(31, 12.5 * side), max(1, int(1.2 * hs)))   # venom glistening on the fang
                 pygame.draw.polygon(surface, (250, 248, 235), [H(33, 12 * side), H(30, 9 * side), H(24, 9 * side)])
                 pygame.draw.polygon(surface, (250, 248, 235), [H(31, 7 * side), H(29, 4 * side), H(25, 6 * side)])
 
-        tongue_out = reach <= 0.3 and math.sin(self.slither_t * 1.7) > 0.55
+        tongue_out = not gape and math.sin(self.slither_t * 1.7) > 0.55
         if tongue_out:
             red = (215, 30, 60)
             pygame.draw.line(surface, red, H(25, 0), H(36, 0), 2)
@@ -2451,6 +2504,17 @@ class ViperEnemy(Fighter):
             pygame.draw.circle(surface, (30, 24, 16), H(14, 6.5 * side), max(1, int(2.9 * hs)))
             pygame.draw.circle(surface, (235, 225, 190), H(14.8, 6 * side), max(1, int(0.9 * hs)))  # round eye, glint
             pygame.draw.circle(surface, pal["outline"], H(22, 2.5 * side), 1)                        # nostril
+
+def load_cover():
+    """The cover picture (cover.png, next to main.py; user, 2026-10-10). None if it is missing."""
+    import os
+    for folder in (os.path.dirname(os.path.abspath(__file__)), os.getcwd()):
+        try:
+            return pygame.transform.smoothscale(pygame.image.load(os.path.join(folder, "cover.png")).convert(), (WIDTH, HEIGHT))
+        except Exception:
+            continue
+    return None
+
 
 # ---------------------------------------------------------
 # 8. MAIN ENGINE LOOP
@@ -2932,23 +2996,24 @@ async def main():
         hint = font_hud_sm.render("keys 1-9 = LV 10-90, 0 = LV 100, [ ] = -/+10", True, (200, 185, 150))
         canvas.blit(hint, hint.get_rect(center=((level_buttons[0][1].x + level_buttons[-1][1].right) // 2, HEIGHT - 76)))
 
+    cover_img = load_cover()
     font_help_title = pygame.font.SysFont("arial", 34, bold=True)
     font_help_head = pygame.font.SysFont("consolas", 17, bold=True)
     font_help = pygame.font.SysFont("consolas", 14, bold=True)
 
     HELP_CONTROLS = [
         ("PLAYER 1  (mongoose in modes 1-3, lead viper in 4-5)", None),
-        ("W A S D  /  SHIFT or Q", "move (the mongoose is swift)  /  mongoose leaps over the snake"),
-        ("SPACE / LEFT CLICK", "bite / strike or spit (aim with mouse, HOLD to keep going)"),
+        ("W A S D  /  SHIFT or Q", "move  /  mongoose leaps"),
+        ("SPACE / LEFT CLICK", "bite / strike or spit (mouse aims, HOLD)"),
         ("E / RIGHT CLICK", "special: Fury of bites / venom spray"),
         ("PLAYER 2  (mongoose 2 in mode 2, viper in modes 3 and 5)", None),
-        ("ARROW KEYS  /  /", "move (a viper player steers the lead viper)  /  mongoose 2 leaps"),
+        ("ARROW KEYS  /  /", "move (viper player: lead viper)  /  leap"),
         ("ENTER / RIGHT CTRL", "mongoose bite  /  viper strike or spit"),
         ("RIGHT SHIFT", "mongoose Fury  /  viper venom spray"),
         ("GAME CONTROLLER  (pad 1 = Player 1, pad 2 = Player 2)", None),
         ("LEFT STICK / D-PAD", "move"),
         ("A / X", "bite / strike, hold to keep going (right stick aims)"),
-        ("B / LB / RB  (Y)", "special: Fury / venom spray  (Y: mongoose leaps; viper: spray)"),
+        ("B / LB / RB  (Y)", "Fury / venom spray  (Y: mongoose leap)"),
         ("START", "start the game / show this screen"),
         ("GAME", None),
         ("T  R  M  H", "5 modes / restart / mute / this screen"),
@@ -2987,7 +3052,11 @@ async def main():
 
     def draw_help_screen(current_level):
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        overlay.fill((28, 20, 12, 238))
+        if cover_img is not None:                       # the user's mongoose-and-cobra picture, behind the text
+            canvas.blit(cover_img, (0, 0))
+            overlay.fill((24, 17, 10, 168))
+        else:
+            overlay.fill((28, 20, 12, 238))
         canvas.blit(overlay, (0, 0))
         title = font_help_title.render(GAME_NAME, True, (235, 190, 110))
         canvas.blit(title, title.get_rect(center=(WIDTH // 2, 34)))
