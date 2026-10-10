@@ -666,6 +666,8 @@ HOLES = make_holes()
 # Look of the fighters (drawing only, never changes hit sizes or balance)
 MONGOOSE_SCALE = 1.9            # the fighting mongoose: big (user, 2026-10-10: made bigger again)
 MONGOOSE_ORIGIN = 30            # its centre (hit point) is at the shoulders, so the head is where the fight is
+MONGOOSE_GIRTH = 0.25           # slim: body and tail depth at 1/4 of before, same length (user, 2026-10-10)
+MONGOOSE_HEAD = 0.55            # head in proportion to the slim body
 JUNGLE_MONGOOSE_SCALE = 0.5     # the wild mongooses are babies (user, 2026-10-10: "like children, very small")
 JUNGLE_MONGOOSES = 3
 JUNGLE_SNAKES = 2               # wild vipers roaming the jungle on their own
@@ -678,6 +680,8 @@ ONLOOKER_SIZE = 0.65            # ...and smaller (user, 2026-10-10: "still bigge
 ONLOOKER_ROTATE_FRAMES = 1800   # ...and every 30 s one kind wanders off and a different kind comes in
 FLEE_RANGE = 170                # an onlooker runs from a fight that comes this close
 VIPER_SCALE = 1.35              # fighting king cobras: a little thinner than before (user), big head...
+SNAKE_GIRTH = 0.25              # slim: body and tail 1/4 as thick as before, same length (user, 2026-10-10)
+SNAKE_HEAD = 0.55               # head in proportion: still wider than the neck, like a real cobra
 VIPER_SEGMENTS = 56             # ...and a tail as long as possible (user, 2026-10-10; was 24, then 36)
 MONGOOSE_COLORS = {                 # fur, dark fur, belly, tail tip
     1: ((140, 124, 98), (80, 68, 52), (198, 182, 150), (45, 38, 30)),     # Indian grey mongoose
@@ -900,76 +904,96 @@ class SquirrelPlayer(Fighter):
                 pygame.draw.circle(surface, (120, 98, 68), (int(ox + math.cos(a) * rr), int(oy + math.sin(a) * rr * 0.6)), 9 - k % 4)
                 pygame.draw.circle(surface, (150, 126, 90), (int(ox + math.cos(a) * rr), int(oy + math.sin(a) * rr * 0.6)), 5 - k % 3)
 
-        oval((34, 26, 17), -6, 27, 150, 12)                        # shadow on the ground
-        oval((34, 26, 17), -70, 14, 50, 8)
+        # Slim build (user, 2026-10-10: "very fatty - reduce to 1/4, keep length same"): body and tail
+        # are MONGOOSE_GIRTH as deep as before at the same length; the head is MONGOOSE_HEAD of its old size.
+        G, HG = MONGOOSE_GIRTH, MONGOOSE_HEAD
+        B = 15 * G                                                  # half the body's depth
+        yt = B * 0.5                                                # where the legs join the body
+        oval((34, 26, 17), -6, yt + 13, 150, 8)                     # shadow on the ground
+        oval((34, 26, 17), -70, yt + 8, 50, 6)
 
         # Tail: long and tapering, fur puffed up the way a mongoose fluffs it against a snake
-        tail = _chain([(-34, -2), (-52, wave * 2), (-68, 4 + wave * 4), (-84, 2 + wave * 6), (-98, -2 + wave * 7)], 14 * puff, 5 * puff, step=4)
+        tail = _chain([(-38, -0.5), (-54, wave * 1.2), (-70, 2 + wave * 2.4), (-86, 1 + wave * 3.6), (-100, -1 + wave * 4.2)],
+                      max(3.0, B) * puff, 1.4 * puff, step=3)
         for (lx, ly), r in tail:
-            circ(outline, lx, ly, r + 1.5)
+            circ(outline, lx, ly, r + 1.0)
         for k, ((lx, ly), r) in enumerate(tail):
             circ(tip if k > len(tail) * 0.72 else fur, lx, ly, r)
-        for k in range(0, len(tail) - 2, 2 if detail else 5):
+        for k in range(0, len(tail) - 2, 3 if detail else 7):
             (lx, ly), r = tail[k]
-            line(dark, (lx, ly - r + 1), (lx - 4, ly - r - 5 * puff), 1.5)
-            line(dark, (lx, ly + r - 1), (lx - 4, ly + r + 4 * puff), 1.5)
+            line(dark, (lx, ly - r), (lx - 3, ly - r - 3 * puff), 1)
+            line(dark, (lx, ly + r), (lx - 3, ly + r + 2.5 * puff), 1)
 
         def leg(hx, phase, col):
             sw = stride * 7 * phase
-            knee, foot = (hx + sw * 0.4, 15), (hx + sw, 24)
-            line(outline, (hx, 6), knee, 11)
-            line(outline, knee, foot, 9)
-            line(col, (hx, 6), knee, 8)
-            line(col, knee, foot, 6)
-            oval(outline, foot[0] + 2, foot[1], 11, 6)
+            knee, foot = (hx + sw * 0.4, yt + 6), (hx + sw, yt + 12)          # short legs, like a real mongoose
+            line(outline, (hx, yt), knee, 5.5)
+            line(outline, knee, foot, 4.5)
+            line(col, (hx, yt), knee, 4)
+            line(col, knee, foot, 3)
+            oval(outline, foot[0] + 2, foot[1], 8, 4)
             if detail:
-                for c in (-1.5, 0, 1.5):                                     # claws
-                    line((235, 230, 215), (foot[0] + 6, foot[1] + c), (foot[0] + 9, foot[1] + c + 1), 1)
+                for c in (-1, 0, 1):                                         # claws
+                    line((235, 230, 215), (foot[0] + 5, foot[1] + c), (foot[0] + 8, foot[1] + c + 0.6), 0.7)
 
         leg(-26, -1, dark)          # far legs
         leg(18, 1, dark)
 
-        # Body: long and low, lighter belly, grizzled fur, bristling crest along the back
-        oval(outline, 0, 0, 84, 34)
-        oval(fur, 0, 0, 80, 30)
-        oval(light, 2, 7, 62, 13)
+        # Body: long and slim, lighter belly, grizzled fur, bristling crest along the back
+        oval(outline, 0, 0, 84, 2 * B + 3)
+        oval(fur, 0, 0, 80, 2 * B)
+        oval(light, 2, B * 0.45, 62, B * 0.9)
         for lx in range(-34, 24, 6 if detail else 12):
-            spike = [(lx, -12), (lx + 2, -20 - ((lx // 6) % 2) * 3 - 7 * fluff), (lx + 6, -12)]
+            spike = [(lx, -B + 0.5), (lx + 2, -B - 3 - ((lx // 6) % 2) * 1.5 - 4 * fluff), (lx + 5, -B + 0.5)]
             poly(dark, spike)
             poly(outline, spike, 1)
-        for lx, ly in (MONGOOSE_GRIZZLE if detail else ()):
-            line(dark, (lx, ly), (lx - 3, ly + 5), 1.5)
-            line(light, (lx + 3, ly + 1), (lx + 1, ly + 4), 1)
+        for lx, _ly in (MONGOOSE_GRIZZLE if detail else ()):
+            line(dark, (lx, -B * 0.6), (lx - 2, B * 0.3), 0.8)
 
         leg(-20, 1, fur)            # near legs
         leg(24, -1, fur)
 
-        # Neck and head, raised and pushed forward to strike
-        oval(outline, 28, -9, 26, 24)
-        oval(fur, 28, -9, 22, 20)
-        oval(outline, 40, -14, 34, 26)
-        oval(fur, 40, -14, 30, 22)
-        poly((110, 18, 24), [(48, -8), (67, -10), (62, -9 + jaw), (48, -6 + jaw * 0.6)])   # open mouth
-        for tx in (52, 56):                                                               # teeth
-            poly((245, 240, 225), [(tx, -9), (tx + 2, -9), (tx + 1, -6.5)])
-        poly((250, 248, 235), [(60, -10), (62.5, -10), (61, -4.5)])                       # upper fang
-        poly((250, 248, 235), [(57, -7 + jaw * 0.8), (59, -7 + jaw * 0.8), (58, -11 + jaw * 0.8)])  # lower fang
-        line(fur, (48, -5 + jaw * 0.6), (62, -8 + jaw), 3)                                # lower jaw
-        snout = [(50, -22), (66, -15), (68, -11), (52, -8)]
-        poly(fur, snout)
-        poly(outline, snout, 2)
-        circ((30, 22, 22), 67, -13, 3)                                                    # nose
-        circ(outline, 31, -24, 5.5)                                                       # ear
-        circ(dark, 31, -24, 4.5)
-        circ(light, 31, -23, 2)
-        circ(outline, 45, -17, 4.2)                                                       # red eye
-        circ((235, 70, 25), 45, -17, 3.2)
-        circ((10, 5, 5), 46, -17, 1.6)
-        circ((255, 230, 200), 44, -18, 0.8)
-        line(outline, (38, -23), (50, -19), 2.5)                                          # angry brow
-        for dy in ((-3, 0, 3) if detail else ()):                                         # whiskers
-            line(light, (60, -13), (73, -14 + dy), 0.8)
+        # Neck and head, raised and pushed forward to strike (head features keep their old layout, at HG size)
+        hcx, hcy = 46.0, -B - 3.0
 
+        def hp(x, y):
+            return (hcx + (x - 40) * HG, hcy + (y + 14) * HG)
+
+        def hcirc(col, x, y, r):
+            circ(col, *hp(x, y), r * HG)
+
+        def hoval(col, x, y, w, h):
+            oval(col, *hp(x, y), w * HG, h * HG)
+
+        def hpoly(col, pts, width=0):
+            poly(col, [hp(*p) for p in pts], width)
+
+        def hline(col, a, b, w):
+            line(col, hp(*a), hp(*b), max(0.6, w * HG))
+
+        line(outline, (30, -B * 0.2), (hcx - 5, hcy + 2), 2 * B + 3)
+        line(fur, (30, -B * 0.2), (hcx - 5, hcy + 2), 2 * B + 1)
+        hoval(outline, 40, -14, 34, 26)
+        hoval(fur, 40, -14, 30, 22)
+        hpoly((110, 18, 24), [(48, -8), (67, -10), (62, -9 + jaw), (48, -6 + jaw * 0.6)])   # open mouth
+        for tx in (52, 56):                                                               # teeth
+            hpoly((245, 240, 225), [(tx, -9), (tx + 2, -9), (tx + 1, -6.5)])
+        hpoly((250, 248, 235), [(60, -10), (62.5, -10), (61, -4.5)])                      # upper fang
+        hpoly((250, 248, 235), [(57, -7 + jaw * 0.8), (59, -7 + jaw * 0.8), (58, -11 + jaw * 0.8)])  # lower fang
+        hline(fur, (48, -5 + jaw * 0.6), (62, -8 + jaw), 3)                               # lower jaw
+        snout = [(50, -22), (66, -15), (68, -11), (52, -8)]
+        hpoly(fur, snout)
+        hpoly(outline, snout, 1)
+        hcirc((30, 22, 22), 67, -13, 3)                                                   # nose
+        hcirc(outline, 31, -24, 5.5)                                                      # ear
+        hcirc(dark, 31, -24, 4.5)
+        hcirc(light, 31, -23, 2)
+        hcirc(outline, 45, -17, 4.2)                                                      # red eye
+        hcirc((235, 70, 25), 45, -17, 3.2)
+        hcirc((10, 5, 5), 46, -17, 1.6)
+        hline(outline, (38, -23), (50, -19), 2.5)                                         # angry brow
+        for dy in ((-3, 0, 3) if detail else ()):                                         # whiskers
+            hline(light, (60, -13), (73, -14 + dy), 1)
 BUSHES = ((70, HEIGHT - 110, 46), (400, HEIGHT - 84, 40), (880, HEIGHT - 88, 44),
           (WIDTH - 210, HEIGHT - 82, 42), (WIDTH - 60, 215, 44), (30, 590, 40))
 BUSH_SPOTS = [(x, y + 8) for x, y, _r in BUSHES]
@@ -1031,6 +1055,7 @@ class JungleSnake:
         self.v = ViperEnemy(level=1, spawn=hole, hole=hole)
         self.v.scale = JUNGLE_SNAKE_SCALE
         self.v.num_segments = 32
+        self.v.girth = 0.6              # babies a little plumper, or they would be too thin to see
         self.rnd = rnd
         self.hidden = False
         self.spot = None
@@ -2195,7 +2220,7 @@ class ViperEnemy(Fighter):
         r = 2.5 + 10.5 * (1.0 - t) ** 0.5          # thick almost to the end, short point at the tip
         if t < 0.06:
             r *= 0.8 + t / 0.06 * 0.2
-        return r * getattr(self, "scale", VIPER_SCALE)
+        return r * getattr(self, "scale", VIPER_SCALE) * getattr(self, "girth", SNAKE_GIRTH)
 
     def draw(self, surface):
         """A real-looking viper seen from above (user, 2026-10-10): smooth tapering body,
@@ -2226,9 +2251,9 @@ class ViperEnemy(Fighter):
             hx, hy = self.hole
             path = [q for q in path if math.hypot(q[0] - hx, q[1] - hy) > 13]
         for x, y, t in path[::2]:                                  # shadow on the ground
-            pygame.draw.circle(surface, (34, 26, 17), (int(x + 3), int(y + 5)), int(self.body_radius(t) + 2))
+            pygame.draw.circle(surface, (34, 26, 17), (int(x + 2), int(y + 4)), max(2, int(self.body_radius(t) + 1.5)))
         for x, y, t in path:
-            pygame.draw.circle(surface, pal["outline"], (int(x), int(y)), int(self.body_radius(t) + 2))
+            pygame.draw.circle(surface, pal["outline"], (int(x), int(y)), max(2, int(self.body_radius(t) + 1.5)))
         for x, y, t in reversed(path):
             col = pal["tail"] if pal["tail"] and t > 0.8 else pal["body"]
             pygame.draw.circle(surface, col, (int(x), int(y)), max(1, int(self.body_radius(t))))
@@ -2252,7 +2277,7 @@ class ViperEnemy(Fighter):
         for idx in range(5, len(path) - 3, 7) if len(path) > 8 else ():
             x, y, t = path[idx]
             r = self.body_radius(t)
-            if r < 4 or (pal["tail"] and t > 0.8):
+            if r < 1.5 or (pal["tail"] and t > 0.8):
                 continue
             ux, uy = frame(idx)
             if pal["style"] == "chain":
@@ -2266,8 +2291,8 @@ class ViperEnemy(Fighter):
                     for side in (-1, 1):
                         oval(sx - vy * sr * 0.72 * side, sy + vx * sr * 0.72 * side, vx, vy, sr * 0.26, sr * 0.2, pal["blotch"])
             elif pal["style"] == "cobra":                         # pale crossbands with dark edges
-                oval(x, y, ux, uy, r * 0.22, r * 1.0, pal["blotch"])
-                oval(x, y, ux, uy, r * 0.11, r * 0.97, pal["rim"])
+                oval(x, y, ux, uy, max(1.6, r * 0.45), r * 1.0, pal["blotch"])
+                oval(x, y, ux, uy, max(0.9, r * 0.25), r * 0.95, pal["rim"])
             else:
                 oval(x, y, ux, uy, r * 0.22, r * 0.95, pal["blotch"])
                 oval(x - uy * r * 0.35, y + ux * r * 0.35, ux, uy, r * 0.5, r * 0.12, pal["rim"])
@@ -2276,19 +2301,19 @@ class ViperEnemy(Fighter):
         ext = self.strike_extension()
         reach = max(0.0, ext) / STRIKE_REACH
         stand = self.standing()
-        hs = getattr(self, "scale", VIPER_SCALE) * max(1.0 + 0.35 * stand, 1.0 + (STRIKE_HEAD_SCALE - 1.0) * reach)   # raised head looks bigger
+        hs = getattr(self, "scale", VIPER_SCALE) * SNAKE_HEAD * max(1.0 + 0.35 * stand, 1.0 + (STRIKE_HEAD_SCALE - 1.0) * reach)   # raised head looks bigger
         ang = self.strike_ang if self.strike_t > 0 else self.heading
         cu, su = math.cos(ang), math.sin(ang)
         hx0, hy0 = self.x + cu * ext, self.y + su * ext
         if ext > 2:
             neck = _chain([(self.x, self.y), (hx0, hy0)], self.body_radius(0.0), self.body_radius(0.0) * (1 + reach * 0.3), step=3)
             for (nx, ny), r in neck:
-                pygame.draw.circle(surface, pal["outline"], (int(nx), int(ny)), int(r + 2))
+                pygame.draw.circle(surface, pal["outline"], (int(nx), int(ny)), max(2, int(r + 1.5)))
             for (nx, ny), r in neck:
                 pygame.draw.circle(surface, pal["body"], (int(nx), int(ny)), int(r))
             for k in range(2, len(neck) - 2, 5):
                 (nx, ny), r = neck[k]
-                oval(nx, ny, cu, su, r * 0.17, r * 0.95, pal["rim"])
+                oval(nx, ny, cu, su, max(0.9, r * 0.25), r * 0.95, pal["rim"])
 
         if stand > 0:                                                         # shadow under the raised head
             sh = pygame.Rect(0, 0, int(34 * hs), int(18 * hs))
