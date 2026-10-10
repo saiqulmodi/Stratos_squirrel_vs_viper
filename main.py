@@ -666,8 +666,8 @@ HOLES = make_holes()
 # Look of the fighters (drawing only, never changes hit sizes or balance)
 MONGOOSE_SCALE = 1.2            # the fighting mongoose (user, 2026-10-10: 1.6 -> 1.9, then smaller again: "very big compared to the ground")
 MONGOOSE_ORIGIN = 30            # its centre (hit point) is at the shoulders, so the head is where the fight is
-MONGOOSE_GIRTH = 0.25           # slim: body and tail depth at 1/4 of before, same length (user, 2026-10-10)
-MONGOOSE_HEAD = 0.55            # head in proportion to the slim body
+MONGOOSE_GIRTH = 0.0625         # slim: body depth 1/4 of before, twice over (user, 2026-10-10), same length
+MONGOOSE_HEAD = 0.4             # head kept big enough to see its face
 JUNGLE_MONGOOSE_SCALE = 0.5     # the wild mongooses are babies (user, 2026-10-10: "like children, very small")
 JUNGLE_MONGOOSES = 3
 JUNGLE_SNAKES = 2               # wild vipers roaming the jungle on their own
@@ -680,12 +680,13 @@ ONLOOKER_SIZE = 0.65            # ...and smaller (user, 2026-10-10: "still bigge
 ONLOOKER_ROTATE_FRAMES = 1800   # ...and every 30 s one kind wanders off and a different kind comes in
 FLEE_RANGE = 170                # an onlooker runs from a fight that comes this close
 VIPER_SCALE = 1.0               # fighting king cobras (user, 2026-10-10: 1.6 -> 1.35 -> 1.0, "very big compared to the ground")...
-SNAKE_GIRTH = 0.25              # slim: body and tail 1/4 as thick as before, same length (user, 2026-10-10)
-SNAKE_HEAD = 0.55               # head in proportion: still wider than the neck, like a real cobra
+SNAKE_GIRTH = 0.0625            # slim: 1/4 as thick as before, twice over (user, 2026-10-10), same length
+SNAKE_SPOTS = ((15, 15, 15), (215, 35, 35), (240, 205, 40), (45, 165, 60))   # black, red, yellow, green (user, 2026-10-10)
+SNAKE_HEAD = 0.4                # head kept big enough to see the hood; still wider than the neck
 VIPER_SEGMENTS = 36             # ...body length (24 -> 36 -> 56, back to 36 when the user found it too heavy)
-MONGOOSE_COLORS = {                 # fur, dark fur, belly, tail tip
-    1: ((140, 124, 98), (80, 68, 52), (198, 182, 150), (45, 38, 30)),     # Indian grey mongoose
-    2: ((172, 100, 54), (106, 56, 28), (224, 162, 112), (60, 30, 15)),    # ruddy mongoose
+MONGOOSE_COLORS = {                 # fur, dark fur, belly, tail tip - bright but natural (user, 2026-10-10: "colourful")
+    1: ((184, 142, 74), (116, 80, 38), (236, 210, 150), (62, 40, 18)),     # golden tawny mongoose
+    2: ((200, 104, 46), (130, 58, 22), (244, 172, 108), (72, 30, 10)),     # bright rufous mongoose
 }
 MONGOOSE_GRIZZLE = [(-24, -8), (-14, -4), (-4, -9), (6, -5), (16, -9), (-18, 2), (-6, 1), (8, 2), (20, -1)]
 VIPER_PALETTES = {
@@ -909,29 +910,28 @@ class SquirrelPlayer(Fighter):
         G, HG = MONGOOSE_GIRTH, MONGOOSE_HEAD
         B = 15 * G                                                  # half the body's depth
         yt = B * 0.5                                                # where the legs join the body
-        oval((34, 26, 17), -6, yt + 13, 150, 8)                     # shadow on the ground
-        oval((34, 26, 17), -70, yt + 8, 50, 6)
+        oval((34, 26, 17), -6, yt + 13, 150, 4)                     # shadow on the ground
 
         # Tail: long and tapering, fur puffed up the way a mongoose fluffs it against a snake
         tail = _chain([(-38, -0.5), (-50, wave * 1.0), (-62, 1.5 + wave * 2.0), (-74, 1 + wave * 3.0), (-84, -0.5 + wave * 3.5)],
-                      max(2.4, B * 0.7) * puff, 0.9 * puff, step=3)       # lighter tail, fine tip
+                      B * 0.25 * puff, B * 0.12 * puff, step=3)         # tail 1/4 of the body's width (user)
         for (lx, ly), r in tail:
-            circ(outline, lx, ly, r + 1.0)
+            circ(outline, lx, ly, r + 0.6)
         for k, ((lx, ly), r) in enumerate(tail):
             circ(tip if k > len(tail) * 0.72 else fur, lx, ly, r)
-        for k in range(0, len(tail) - 2, 3 if detail else 7):
+        for k in (range(0, len(tail) - 2, 4) if fluff > 0.2 else ()):     # tail hairs only when it bristles
             (lx, ly), r = tail[k]
-            line(dark, (lx, ly - r), (lx - 3, ly - r - 3 * puff), 1)
-            line(dark, (lx, ly + r), (lx - 3, ly + r + 2.5 * puff), 1)
+            line(dark, (lx, ly - r), (lx - 2, ly - r - 2 * fluff), 0.6)
+            line(dark, (lx, ly + r), (lx - 2, ly + r + 1.5 * fluff), 0.6)
 
         def leg(hx, phase, col):
             sw = stride * 7 * phase
             knee, foot = (hx + sw * 0.4, yt + 6), (hx + sw, yt + 12)          # short legs, like a real mongoose
-            line(outline, (hx, yt), knee, 5.5)
-            line(outline, knee, foot, 4.5)
-            line(col, (hx, yt), knee, 4)
-            line(col, knee, foot, 3)
-            oval(outline, foot[0] + 2, foot[1], 8, 4)
+            line(outline, (hx, yt), knee, 2.4)                               # slim legs, never thicker than the body
+            line(outline, knee, foot, 2.0)
+            line(col, (hx, yt), knee, 1.4)
+            line(col, knee, foot, 1.1)
+            oval(outline, foot[0] + 1.5, foot[1], 5, 2.5)
             if detail:
                 for c in (-1, 0, 1):                                         # claws
                     line((235, 230, 215), (foot[0] + 5, foot[1] + c), (foot[0] + 8, foot[1] + c + 0.6), 0.7)
@@ -944,10 +944,10 @@ class SquirrelPlayer(Fighter):
         oval(fur, 0, 0, 80, 2 * B)
         oval(light, 2, B * 0.45, 62, B * 0.9)
         for lx in range(-34, 24, 6 if detail else 12):
-            spike = [(lx, -B + 0.5), (lx + 2, -B - 3 - ((lx // 6) % 2) * 1.5 - 4 * fluff), (lx + 5, -B + 0.5)]
+            spike = [(lx, -B + 0.3), (lx + 1.5, -B - 1.5 - ((lx // 6) % 2) * 0.8 - 3 * fluff), (lx + 3.5, -B + 0.3)]
             poly(dark, spike)
             poly(outline, spike, 1)
-        for lx, _ly in (MONGOOSE_GRIZZLE if detail else ()):
+        for lx, _ly in (MONGOOSE_GRIZZLE if detail and B >= 2 else ()):
             line(dark, (lx, -B * 0.6), (lx - 2, B * 0.3), 0.8)
 
         leg(-20, 1, fur)            # near legs
@@ -1055,7 +1055,7 @@ class JungleSnake:
         self.v = ViperEnemy(level=1, spawn=hole, hole=hole)
         self.v.scale = JUNGLE_SNAKE_SCALE
         self.v.num_segments = 32
-        self.v.girth = 0.6              # babies a little plumper, or they would be too thin to see
+        self.v.girth = 0.125            # babies: as thin-looking as the adults (they are half the size)
         self.rnd = rnd
         self.hidden = False
         self.spot = None
@@ -2250,14 +2250,32 @@ class ViperEnemy(Fighter):
         if self.hole:                                              # the part still inside the hole is hidden
             hx, hy = self.hole
             path = [q for q in path if math.hypot(q[0] - hx, q[1] - hy) > 13]
-        for x, y, t in path[::2]:                                  # shadow on the ground
-            pygame.draw.circle(surface, (34, 26, 17), (int(x + 2), int(y + 4)), max(2, int(self.body_radius(t) + 1.5)))
-        for x, y, t in path:
-            pygame.draw.circle(surface, pal["outline"], (int(x), int(y)), max(2, int(self.body_radius(t) + 1.5)))
-        for x, y, t in reversed(path):
-            col = pal["tail"] if pal["tail"] and t > 0.8 else pal["body"]
-            pygame.draw.circle(surface, col, (int(x), int(y)), max(1, int(self.body_radius(t))))
-
+        if self.body_radius(0.0) < 2.5:
+            # Very slim body (user, 2026-10-10): a smooth line - dark edge, body colour inside, thinner tail
+            pts = [(x, y) for x, y, _t in path]
+            if len(pts) >= 2:
+                cut = len(pts) * 2 // 3
+                front, tail = pts[:cut + 1], pts[cut:]
+                pygame.draw.lines(surface, (34, 26, 17), False, [(x + 2, y + 3) for x, y in pts], 3)
+                if len(front) >= 2:
+                    pygame.draw.lines(surface, pal["outline"], False, front, 4)
+                if len(tail) >= 2:
+                    pygame.draw.lines(surface, pal["outline"], False, tail, 3)
+                if len(front) >= 2:
+                    pygame.draw.lines(surface, pal["body"], False, front, 2)
+                if len(tail) >= 2:
+                    pygame.draw.lines(surface, pal["body"], False, tail, 1)
+                for k in range(3, len(pts) - 2, 3):                    # colourful spots: black, red, yellow, green (user)
+                    r = 2 if k < cut else 1
+                    pygame.draw.circle(surface, SNAKE_SPOTS[(k // 3) % len(SNAKE_SPOTS)], (int(pts[k][0]), int(pts[k][1])), r)
+        else:
+            for x, y, t in path[::2]:                                  # shadow on the ground
+                pygame.draw.circle(surface, (34, 26, 17), (int(x + 2), int(y + 4)), max(2, int(self.body_radius(t) + 1.5)))
+            for x, y, t in path:
+                pygame.draw.circle(surface, pal["outline"], (int(x), int(y)), max(2, int(self.body_radius(t) + 1.5)))
+            for x, y, t in reversed(path):
+                col = pal["tail"] if pal["tail"] and t > 0.8 else pal["body"]
+                pygame.draw.circle(surface, col, (int(x), int(y)), max(1, int(self.body_radius(t))))
         def frame(idx):
             ax, ay = path[max(0, idx - 2)][:2]
             bx, by = path[min(len(path) - 1, idx + 2)][:2]
@@ -2305,7 +2323,10 @@ class ViperEnemy(Fighter):
         ang = self.strike_ang if self.strike_t > 0 else self.heading
         cu, su = math.cos(ang), math.sin(ang)
         hx0, hy0 = self.x + cu * ext, self.y + su * ext
-        if ext > 2:
+        if ext > 2 and self.body_radius(0.0) < 2.5:                          # slim neck stretched out in a strike
+            pygame.draw.line(surface, pal["outline"], (self.x, self.y), (hx0, hy0), 5)
+            pygame.draw.line(surface, pal["body"], (self.x, self.y), (hx0, hy0), 3)
+        elif ext > 2:
             neck = _chain([(self.x, self.y), (hx0, hy0)], self.body_radius(0.0), self.body_radius(0.0) * (1 + reach * 0.3), step=3)
             for (nx, ny), r in neck:
                 pygame.draw.circle(surface, pal["outline"], (int(nx), int(ny)), max(2, int(r + 1.5)))
