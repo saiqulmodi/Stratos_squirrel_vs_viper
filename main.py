@@ -666,8 +666,8 @@ HOLES = make_holes()
 # Look of the fighters (drawing only, never changes hit sizes or balance)
 MONGOOSE_SCALE = 1.6            # the fighting mongoose: big (user, 2026-10-10)
 JUNGLE_MONGOOSE_SCALE = 0.8     # the other mongooses wandering in the jungle, smaller
-JUNGLE_MONGOOSES = 6
-JUNGLE_SNAKES = 4               # wild vipers roaming the jungle on their own
+JUNGLE_MONGOOSES = 3
+JUNGLE_SNAKES = 2               # wild vipers roaming the jungle on their own
 JUNGLE_SNAKE_SCALE = 0.8
 JUNGLE_SPOT_RANGE = 220         # a wild mongoose and a wild snake this close spot each other and fight to the kill
 JUNGLE_RESPAWN_FRAMES = 300     # a new wild animal turns up every 5 s while the jungle is short of one
