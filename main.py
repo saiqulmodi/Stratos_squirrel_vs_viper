@@ -669,9 +669,10 @@ STRIKE_HOLD = 3           # frames at full reach
 STRIKE_FRAMES = 24        # stand 10, shoot 3, hold 3, pull back 8 (0.4 s)
 STRIKE_HIT_RADIUS = 34    # bite hit size around the striking head (the mongoose is drawn bigger now)
 STRIKE_HEAD_SCALE = 1.7   # head size at full reach
-COIL_RADIUS = 46.0        # facing a mongoose the cobra coils its body (user's picture): coil radius...
-COIL_TURNS = 1.8          # ...turns of the coil...
-COIL_RISE = 30.0          # ...and how high the front of the body is raised off the ground
+COIL_RADIUS = 62.0        # facing a mongoose the cobra coils its body (user's picture): coil radius...
+COIL_TURNS = 1.3          # ...turns of the coil...
+COIL_TILT = 0.55          # the coil lies on the ground, seen at a slant like the side-view mongoose
+COIL_RISE = 62.0          # ...and how high the front of the body is raised off the ground
 
 # Natural fighting (user, 2026-10-10): no lasers or Nova rings. The mongoose leaps and bites,
 # its special is a Fury of bites all around; vipers strike, spit venom drops or spray venom.
@@ -697,25 +698,26 @@ HOLES = make_holes()
 # Look of the fighters (drawing only, never changes hit sizes or balance)
 MONGOOSE_SCALE = 1.2            # the fighting mongoose (user, 2026-10-10: 1.6 -> 1.9, then smaller again: "very big compared to the ground")
 MONGOOSE_ORIGIN = 30            # its centre (hit point) is at the shoulders, so the head is where the fight is
-MONGOOSE_GIRTH = 0.5            # fighting mongoose: full, clearly visible body like the user's picture (user, 2026-10-10: "got so small it is not visible")
-MONGOOSE_HEAD = 0.8             # ...with a head to match
+MONGOOSE_GIRTH = 1.0            # fighting mongoose: short, deep, heavy body like the user's picture
+MONGOOSE_HEAD = 0.75            # ...with a big head to match
+MONGOOSE_LENGTH = 0.7           # body, neck and tail at 0.7 of their old length (user, 2026-10-10: "length 4x lesser, mass 10x, full heavy widthwise")
 BABY_MONGOOSE_GIRTH = 0.0625    # the wild babies stay exactly as they were (user: "keep as it is")
 BABY_MONGOOSE_HEAD = 0.4
-JUNGLE_MONGOOSE_SCALE = 0.5     # the wild mongooses are babies (user, 2026-10-10: "like children, very small")
+JUNGLE_MONGOOSE_SCALE = 0.3     # the wild mongooses are babies (user, 2026-10-10: "like children, very small")
 JUNGLE_MONGOOSES = 3
 JUNGLE_SNAKES = 2               # wild vipers roaming the jungle on their own
-JUNGLE_SNAKE_SCALE = 0.5       # baby king cobras
+JUNGLE_SNAKE_SCALE = 0.3       # baby king cobras
 JUNGLE_SPOT_RANGE = 220         # a wild mongoose and a wild snake this close spot each other and fight to the kill
 JUNGLE_RESPAWN_FRAMES = 300     # a new wild animal turns up every 5 s while the jungle is short of one
 ONLOOKER_KINDS_AT_ONCE = 4      # only 4 other animals on screen, one of each kind (20 kinds in all; user: "keep limited to four to five")...
 ONLOOKER_ALPHA = 165            # other animals are drawn softer so the mongooses and snakes stand out
-ONLOOKER_SIZE = 0.65            # ...and smaller (user, 2026-10-10: "still bigger animals in display")
+ONLOOKER_SIZE = 0.4             # ...and smaller (user, 2026-10-10: "still bigger animals in display")
 ONLOOKER_ROTATE_FRAMES = 1800   # ...and every 30 s one kind wanders off and a different kind comes in
 FLEE_RANGE = 170                # an onlooker runs from a fight that comes this close
 VIPER_SCALE = 1.0               # fighting king cobras (user, 2026-10-10: 1.6 -> 1.35 -> 1.0, "very big compared to the ground")...
-SNAKE_GIRTH = 0.4               # fighting cobras: a full, round body like the user's picture (user, 2026-10-10: "snakes got very thin")
+SNAKE_GIRTH = 1.0               # fighting cobras: a full, round body like the user's picture (user, 2026-10-10: "snakes got very thin")
 SNAKE_SPOTS = ((15, 15, 15), (215, 35, 35), (240, 205, 40), (45, 165, 60))   # black, red, yellow, green (user, 2026-10-10)
-SNAKE_HEAD = 0.75               # head and hood in proportion to the fuller body
+SNAKE_HEAD = 1.25               # head and hood in proportion to the fuller body
 BABY_SNAKE_HEAD = 0.4           # baby snakes keep their old head
 VIPER_SEGMENTS = 36             # ...body length (24 -> 36 -> 56, back to 36 when the user found it too heavy)
 MONGOOSE_COLORS = {                 # fur, dark fur, belly, tail tip - bright but natural (user, 2026-10-10: "colourful")
@@ -905,7 +907,8 @@ class SquirrelPlayer(Fighter):
         S = getattr(self, "scale", MONGOOSE_SCALE)
         G, HG = getattr(self, "girth", MONGOOSE_GIRTH), getattr(self, "head", MONGOOSE_HEAD)
         f = 1 if self.facing_right else -1
-        return (self.x + (46 + 8 * HG - MONGOOSE_ORIGIN) * S * f,
+        L = getattr(self, "length", MONGOOSE_LENGTH)
+        return (self.x + ((46 - MONGOOSE_ORIGIN) * L + 8 * HG) * S * f,
                 self.y - self.lift() + (-15 * G - 3) * S)
 
     def lift(self):
@@ -963,14 +966,16 @@ class SquirrelPlayer(Fighter):
         fur, dark, light, tip = MONGOOSE_COLORS.get(self.player_id, MONGOOSE_COLORS[1])
         outline = (22, 18, 14)
 
+        L = getattr(self, "length", MONGOOSE_LENGTH)       # body length factor (heavy short build, user's picture)
+
         def at(lx, ly):
-            return (int(ox + (lx - MONGOOSE_ORIGIN) * S * f), int(oy + ly * S))
+            return (int(ox + (lx - MONGOOSE_ORIGIN) * L * S * f), int(oy + ly * S))
 
         def circ(col, lx, ly, r):
             pygame.draw.circle(surface, col, at(lx, ly), max(1, int(r * S)))
 
         def oval(col, cx, cy, w, h):
-            rect = pygame.Rect(0, 0, int(w * S), int(h * S))
+            rect = pygame.Rect(0, 0, int(w * L * S), int(h * S))
             rect.center = at(cx, cy)
             pygame.draw.ellipse(surface, col, rect)
 
@@ -1015,8 +1020,9 @@ class SquirrelPlayer(Fighter):
         G, HG = getattr(self, "girth", MONGOOSE_GIRTH), getattr(self, "head", MONGOOSE_HEAD)
         B = 15 * G                                                  # half the body's depth
         yt = B * 0.5                                                # where the legs join the body
-        shadow = pygame.Rect(0, 0, int(150 * S * (1 - lift / (JUMP_HEIGHT * 2.5))), max(2, int(4 * S)))
-        shadow.center = (int(ox + (-6 - MONGOOSE_ORIGIN) * S * f), int(self.y + (yt + 13) * S))
+        legl = 12 + B * 0.35                                       # legs a little longer under a deep body
+        shadow = pygame.Rect(0, 0, int((150 * L + 30 * HG) * S * (1 - lift / (JUMP_HEIGHT * 2.5))), max(2, int((4 + B * 0.3) * S)))
+        shadow.center = (int(ox + (-6 - MONGOOSE_ORIGIN) * L * S * f), int(self.y + (yt + legl + 1) * S))
         pygame.draw.ellipse(surface, (34, 26, 17), shadow)            # shadow on the ground (stays down in a leap)
 
         # Tail: long and tapering, fur puffed up the way a mongoose fluffs it against a snake
@@ -1037,8 +1043,8 @@ class SquirrelPlayer(Fighter):
             sw = stride * 7 * phase
             if pounce:                                                        # front legs reach out, hind legs kick back
                 sw = 11 if hx > 0 else -9
-            knee, foot = (hx + sw * 0.4, yt + 6), (hx + sw, yt + (8 if pounce and hx > 0 else 12))   # short legs, like a real mongoose
-            lw = max(1.0, G * 4)                                             # legs as sturdy as the body allows
+            knee, foot = (hx + sw * 0.4, yt + legl / 2), (hx + sw, yt + (legl * 0.7 if pounce and hx > 0 else legl))   # short legs, like a real mongoose
+            lw = max(1.0, G * 2.6)                                           # legs as sturdy as the body allows
             line(outline, (hx, yt), knee, 2.4 * lw)
             line(outline, knee, foot, 2.0 * lw)
             line(col, (hx, yt), knee, 1.4 * lw)
@@ -1064,6 +1070,16 @@ class SquirrelPlayer(Fighter):
             poly(outline, spike, 1)
         for lx, _ly in (MONGOOSE_GRIZZLE if detail and B >= 2 else ()):
             line(dark, (lx, -B * 0.6), (lx - 2, B * 0.3), 0.8)
+        if detail and B >= 6:                                       # thick grizzled coat: pepper-and-salt flecks all over, rough furry back
+            for k in range(46):
+                fx_ = -40 + (k * 37) % 80
+                fy_ = -B * 0.85 + ((k * 53) % 100) / 100 * B * 1.4
+                if (fx_ / 42) ** 2 + (fy_ / B) ** 2 < 0.8:
+                    circ(light if k % 3 == 0 else dark, fx_, fy_, 0.9)
+            for k in range(16):
+                a = math.pi * (0.08 + 0.84 * k / 15)
+                ex, ey = -math.cos(a) * 41, -math.sin(a) * B
+                line(dark, (ex, ey), (ex - 2.5, ey - 1.6 - 1.5 * fluff), 0.9)
         if detail and B < 2:                                        # grizzled coat: pepper-and-salt flecks (user's picture)
             for k, lx in enumerate(range(-36, 30, 4)):
                 surface.set_at(at(lx, -B * 0.4 + (k % 2) * B * 0.5), dark if k % 3 else light)
@@ -1075,13 +1091,13 @@ class SquirrelPlayer(Fighter):
         hcx, hcy = 46.0, -B - 3.0
 
         def hp(x, y):
-            return (hcx + (x - 40) * HG, hcy + (y + 14) * HG)
+            return (hcx + (x - 40) * HG / L, hcy + (y + 14) * HG)          # head keeps its shape whatever the body length
 
         def hcirc(col, x, y, r):
             circ(col, *hp(x, y), r * HG)
 
         def hoval(col, x, y, w, h):
-            oval(col, *hp(x, y), w * HG, h * HG)
+            oval(col, *hp(x, y), w * HG / L, h * HG)
 
         def hpoly(col, pts, width=0):
             poly(col, [hp(*p) for p in pts], width)
@@ -1127,7 +1143,7 @@ class JungleMongoose:
     def __init__(self, rnd):
         self.body = SquirrelPlayer(rnd.uniform(80, WIDTH - 80), rnd.uniform(150, HEIGHT - 110), player_id=rnd.choice((1, 2)))
         self.body.scale = JUNGLE_MONGOOSE_SCALE
-        self.body.girth, self.body.head = BABY_MONGOOSE_GIRTH, BABY_MONGOOSE_HEAD
+        self.body.girth, self.body.head, self.body.length = BABY_MONGOOSE_GIRTH, BABY_MONGOOSE_HEAD, 1.0   # babies keep their old shape, only smaller
         self.body.anim_t = rnd.uniform(0, 6)
         self.rnd = rnd
         self.hidden = False          # down a burrow: not drawn
@@ -1230,7 +1246,7 @@ class JungleSnake:
     def draw(self, surface, t):
         if self.hidden:
             if math.sin(t * 0.02 + self.k) > 0.55:          # peeks out of its hole now and then
-                draw_peeking_snake(surface, self.spot, t, self.k, s=0.55)
+                draw_peeking_snake(surface, self.spot, t, self.k, s=0.35)
             return
         self.v.draw(surface)
 
@@ -2345,13 +2361,13 @@ class ViperEnemy(Fighter):
         n = self.num_segments * 3
         rc = COIL_RADIUS * S
         ca, sa = math.cos(self.heading), math.sin(self.heading)
-        cx, cy = self.x - ca * rc, self.y - sa * rc
+        cx, cy = self.x - ca * rc, self.y - sa * rc * COIL_TILT
         out = []
         for k, (px, py) in enumerate(self.history):
             t = min(1.0, k / n)
             th = self.heading + t * COIL_TURNS * math.tau
             r = rc * (1.0 - 0.62 * t)
-            qx, qy = cx + math.cos(th) * r, cy + math.sin(th) * r
+            qx, qy = cx + math.cos(th) * r, cy + math.sin(th) * r * COIL_TILT
             out.append((px + (qx - px) * c, py + (qy - py) * c))
         self._coil_key, self._coil_pts = key, out
         return out
@@ -2501,10 +2517,6 @@ class ViperEnemy(Fighter):
         cu, su = math.cos(ang), math.sin(ang)
         rise = self.rise()                                                    # front of the body raised off the coil
         hx0, hy0 = self.x + cu * ext, self.y + su * ext - rise
-        if rise > 2:                                                          # raised neck, up from the coil
-            nw = 4 if self.body_radius(0.0) < 2.5 else max(4, int(self.body_radius(0.0) * 2 + 3))
-            pygame.draw.line(surface, pal["outline"], (self.x, self.y), (self.x + cu * ext * 0.3, self.y - rise), nw)
-            pygame.draw.line(surface, pal["throat"], (self.x, self.y), (self.x + cu * ext * 0.3, self.y - rise), max(2, nw - 2))
         if ext > 2 and self.body_radius(0.0) < 2.5:                          # slim neck stretched out in a strike
             pygame.draw.line(surface, pal["outline"], (self.x, self.y), (hx0, hy0), 5)
             pygame.draw.line(surface, pal["body"], (self.x, self.y), (hx0, hy0), 3)
@@ -2530,8 +2542,11 @@ class ViperEnemy(Fighter):
         # The hood: spreads when the cobra stands up to face a mongoose or strikes
         want = 1.0 if (self.strike_t > 0 or getattr(self, "alert", False)) else 0.0
         self.hood = getattr(self, "hood", 0.0) + (want - getattr(self, "hood", 0.0)) * 0.15
+        if rise > 2:                                       # reared up off its coil: drawn side-on, like the user's picture
+            self.draw_raised(surface, pal, hx0, hy0, cu, su, hs, ext, reach)
+            return
         if self.hood > 0.05:
-            hw = 9 + 17 * self.hood
+            hw = 9 + 11 * self.hood
 
             def hood_ring(w, col, width=0):
                 pts = [H(-11 + 17 * math.cos(a), w * math.sin(a)) for a in [k * math.tau / 20 for k in range(20)]]
@@ -2567,6 +2582,79 @@ class ViperEnemy(Fighter):
             pygame.draw.circle(surface, (30, 24, 16), H(14, 6.5 * side), max(1, int(2.9 * hs)))
             pygame.draw.circle(surface, (235, 225, 190), H(14.8, 6 * side), max(1, int(0.9 * hs)))  # round eye, glint
             pygame.draw.circle(surface, pal["outline"], H(22, 2.5 * side), 1)                        # nostril
+
+def _cobra_draw_raised(self, surface, pal, hx0, hy0, cu, su, hs, ext, reach):
+    """The cobra reared up off its coil, seen from the side (user's picture): a thick neck rising from
+    the coil, the hood spread behind the head with its pale throat, and a profile head facing the
+    mongoose with the jaws gaping, fangs out and venom on them."""
+    sg = 1 if cu >= 0 else -1                      # keep the top of the head up whichever way it faces
+
+    def P(u, v):
+        u, v = u * hs, v * hs * sg
+        return (hx0 + cu * u - su * v, hy0 + su * u + cu * v)
+
+    bw = max(3.0, self.body_radius(0.0) * 0.8)     # neck half-width
+    nb = (self.x, self.y)
+    nt = P(-6, 3)
+    if ext <= 2:                                   # the neck column (a strike draws its own stretched neck)
+        mid = (nb[0] + (nt[0] - nb[0]) * 0.35 - cu * bw, nb[1] + (nt[1] - nb[1]) * 0.6)
+        neck = _chain([nb, mid, nt], bw * 1.1, bw, step=3)
+        for (nx, ny), r in neck:
+            pygame.draw.circle(surface, pal["outline"], (int(nx), int(ny)), int(r + 1.5))
+        for (nx, ny), r in neck:
+            pygame.draw.circle(surface, pal["body"], (int(nx), int(ny)), int(r))
+        for (nx, ny), r in neck[::2]:              # pale belly scales up the front of the neck
+            pygame.draw.circle(surface, pal["throat"], (int(nx + cu * r * 0.45), int(ny)), max(1, int(r * 0.45)))
+    if self.hood > 0.05:                            # hood spread behind the head
+        hcx, hcy = P(-8, 0)[0], P(-8, 0)[1] + bw * 1.5
+        w = 2 * bw * (1.0 + 0.9 * self.hood)
+        h = bw * (2.4 + 1.6 * self.hood)
+        for grow, col in ((2, pal["outline"]), (0, pal["body"])):
+            r = pygame.Rect(0, 0, int(w + grow * 2), int(h + grow * 2))
+            r.center = (int(hcx), int(hcy))
+            pygame.draw.ellipse(surface, col, r)
+        r = pygame.Rect(0, 0, int(w * 0.5), int(h * 0.92))
+        r.center = (int(hcx + cu * w * 0.12), int(hcy + h * 0.02))
+        pygame.draw.ellipse(surface, pal["throat"], r)                        # pale throat
+        for k in (0.15, 0.38):                                                # dark throat bands
+            y = int(hcy - h / 2 + h * (0.45 + k))
+            pygame.draw.line(surface, pal["blotch"], (int(hcx - w * 0.22), y), (int(hcx + w * 0.3), y), max(1, int(bw * 0.35)))
+    gape = reach > 0.3 or (self.hood > 0.6 and self.coil > 0.5)
+    g = 0.55 if gape else 0.1
+
+    def jaw(u, v):                                  # lower jaw swings open around the hinge
+        du, dv = u + 6, v - 2
+        return P(-6 + du * math.cos(g) - dv * math.sin(g), 2 + du * math.sin(g) + dv * math.cos(g))
+
+    lower = [jaw(-6, 2), jaw(24, 2), jaw(23, 5), jaw(-4, 7)]
+    upper = [P(-11, -5), P(0, -9), P(14, -8), P(24, -4), P(29, -1), P(26, 1.5), P(10, 1.5), P(-8, 4)]
+    if gape:
+        pygame.draw.polygon(surface, (205, 70, 95), [P(-5, 2), P(26, 1.5), jaw(24, 2)])       # pink mouth
+    pygame.draw.polygon(surface, pal["head"], lower)
+    pygame.draw.polygon(surface, pal["outline"], lower, 2)
+    if gape:
+        for u in (21, 13):                                                    # fangs, venom glistening
+            a, b = P(u, 1.5), P(u - 1, 7.5 if u == 21 else 5)
+            pygame.draw.line(surface, (250, 248, 235), a, b, max(2, int(1.4 * hs)))
+        pygame.draw.circle(surface, (225, 235, 150), [int(c) for c in P(20, 8.5)], max(1, int(1.3 * hs)))
+        a, b = jaw(18, 2), jaw(18, -3)
+        pygame.draw.line(surface, (250, 248, 235), a, b, max(1, int(1.1 * hs)))
+    pygame.draw.polygon(surface, pal["head"], upper)
+    pygame.draw.polygon(surface, pal["outline"], upper, 2)
+    pygame.draw.line(surface, pal["outline"], P(-2, -8.5), P(4, -1), 1)      # head shields
+    pygame.draw.line(surface, pal["outline"], P(8, -8.5), P(12, -2), 1)
+    pygame.draw.circle(surface, pal["outline"], [int(c) for c in P(11, -4)], max(2, int(3.6 * hs)))
+    pygame.draw.circle(surface, (30, 24, 16), [int(c) for c in P(11, -4)], max(1, int(2.8 * hs)))
+    pygame.draw.circle(surface, (235, 225, 190), [int(c) for c in P(11.8, -4.8)], max(1, int(0.9 * hs)))   # eye glint
+    pygame.draw.circle(surface, pal["outline"], [int(c) for c in P(26, -2)], 1)                          # nostril
+    if not gape and math.sin(self.slither_t * 1.7) > 0.55:                    # flicking tongue
+        red = (215, 30, 60)
+        pygame.draw.line(surface, red, P(28, 0.5), P(38, 0.5), 2)
+        pygame.draw.lines(surface, red, False, [P(42, -3), P(38, 0.5), P(42, 4)], 2)
+
+
+ViperEnemy.draw_raised = _cobra_draw_raised
+
 
 def load_cover():
     """The cover picture (cover.png, next to main.py; user, 2026-10-10). None if it is missing."""
