@@ -656,7 +656,7 @@ STRIKE_HEAD_SCALE = 1.7   # head size at full reach
 # its special is a Fury of bites all around; vipers strike, spit venom drops or spray venom.
 BITE_LUNGE = 120.0        # how far the mongoose leaps on a bite
 BITE_FRAMES = 8           # leap time
-BITE_REACH = 40.0         # jaws are this far ahead of the mongoose's centre
+BITE_REACH = 60.0         # jaws are this far ahead of the mongoose's centre (shoulders)
 BITE_RADIUS = 40          # bite hits a viper head this close (full damage), body/tail at 3/4 of it (half)
 FURY_RADIUS = 130         # Fury: every viper this close gets bitten
 FURY_FRAMES = 30          # dust cloud time
@@ -664,7 +664,8 @@ HOLE_COUNT = 16           # snake holes in the ground; vipers come out of them
 HOLES = make_holes()
 
 # Look of the fighters (drawing only, never changes hit sizes or balance)
-MONGOOSE_SCALE = 1.6            # the fighting mongoose: big (user, 2026-10-10)
+MONGOOSE_SCALE = 1.9            # the fighting mongoose: big (user, 2026-10-10: made bigger again)
+MONGOOSE_ORIGIN = 30            # its centre (hit point) is at the shoulders, so the head is where the fight is
 JUNGLE_MONGOOSE_SCALE = 0.8     # the other mongooses wandering in the jungle, smaller
 JUNGLE_MONGOOSES = 3
 JUNGLE_SNAKES = 2               # wild vipers roaming the jungle on their own
@@ -675,8 +676,8 @@ ONLOOKER_KINDS_AT_ONCE = 4      # only 4 other animals on screen, one of each ki
 ONLOOKER_ALPHA = 165            # other animals are drawn softer so the mongooses and snakes stand out
 ONLOOKER_ROTATE_FRAMES = 1800   # ...and every 30 s one kind wanders off and a different kind comes in
 FLEE_RANGE = 170                # an onlooker runs from a fight that comes this close
-VIPER_SCALE = 1.3               # fighting vipers: thick body, big head...
-VIPER_SEGMENTS = 36             # ...and a very long tail (was 24 segments)
+VIPER_SCALE = 1.6               # fighting vipers: thick body, big head...
+VIPER_SEGMENTS = 56             # ...and a tail as long as possible (user, 2026-10-10; was 24, then 36)
 MONGOOSE_COLORS = {                 # fur, dark fur, belly, tail tip
     1: ((140, 124, 98), (80, 68, 52), (198, 182, 150), (45, 38, 30)),     # Indian grey mongoose
     2: ((172, 100, 54), (106, 56, 28), (224, 162, 112), (60, 30, 15)),    # ruddy mongoose
@@ -863,7 +864,7 @@ class SquirrelPlayer(Fighter):
         outline = (22, 18, 14)
 
         def at(lx, ly):
-            return (int(ox + lx * S * f), int(oy + ly * S))
+            return (int(ox + (lx - MONGOOSE_ORIGIN) * S * f), int(oy + ly * S))
 
         def circ(col, lx, ly, r):
             pygame.draw.circle(surface, col, at(lx, ly), max(1, int(r * S)))
@@ -967,199 +968,222 @@ class SquirrelPlayer(Fighter):
         for dy in ((-3, 0, 3) if detail else ()):                                         # whiskers
             line(light, (60, -13), (73, -14 + dy), 0.8)
 
-class JungleMongoose:
-    """One of the many mongooses living in the jungle (user, 2026-10-10). Smaller than the
-    fighting mongoose, wanders between the grass and the holes, never fights, can't be hit."""
+BUSHES = ((70, HEIGHT - 110, 46), (400, HEIGHT - 84, 40), (880, HEIGHT - 88, 44),
+          (WIDTH - 210, HEIGHT - 82, 42), (WIDTH - 60, 215, 44), (30, 590, 40))
+BUSH_SPOTS = [(x, y + 8) for x, y, _r in BUSHES]
+HIDE_COUNT_FRAMES = 180     # "it" stands still and counts for 3 s while the others run and hide
+HIDE_SEEK_FRAMES = 1800     # a search lasts at most 30 s; anyone not found then comes out by itself
+SNAKE_ENTER_FRAMES = 90     # a snake slithers all the way into its hole
 
-    def __init__(self, rnd, from_edge=False):
-        if from_edge:                           # a newcomer walks in from the side of the jungle
-            x, y = rnd.choice((-30.0, WIDTH + 30.0)), rnd.uniform(160, HEIGHT - 110)
-        else:
-            x, y = rnd.uniform(80, WIDTH - 80), rnd.uniform(150, HEIGHT - 110)
-        self.body = SquirrelPlayer(x, y, player_id=rnd.choice((1, 2)))
+
+class JungleMongoose:
+    """A small wild mongoose. The wild ones never fight (user, 2026-10-10): they play hide-and-seek."""
+    kind = "mongoose"
+
+    def __init__(self, rnd):
+        self.body = SquirrelPlayer(rnd.uniform(80, WIDTH - 80), rnd.uniform(150, HEIGHT - 110), player_id=rnd.choice((1, 2)))
         self.body.scale = JUNGLE_MONGOOSE_SCALE
         self.body.anim_t = rnd.uniform(0, 6)
         self.rnd = rnd
-        self.speed = rnd.uniform(0.9, 1.7)
-        self.rest = 0
-        self.hp = 100.0
-        self.foe = None                         # the wild snake it is fighting
-        self.bite_wait = rnd.randint(15, 40)
-        self.pick()
+        self.hidden = False          # down a burrow: not drawn
+        self.spot = None
+        self.state = "free"
 
-    def fight(self, particles):
-        """Close in on the snake's head, leap and bite; one bite per leap."""
-        b, s = self.body, self.foe.v
-        b.update()                              # bite leap movement + timers
-        dx, dy = s.x - b.x, s.y - b.y
-        d = math.hypot(dx, dy) or 1.0
-        if b.lunge_t <= 0:
-            if d > 105:
-                b.x += dx / d * 2.6
-                b.y += dy / d * 2.6
-            elif d < 70:
-                b.x -= dx / d * 2.0
-                b.y -= dy / d * 2.0
-            else:                               # circles the snake, looking for an opening
-                b.x += -dy / d * 1.4
-                b.y += dx / d * 1.4
-            if abs(dx) > 1:
-                b.facing_right = dx > 0
-        self.bite_wait -= 1
-        if self.bite_wait <= 0 and b.lunge_t <= 0 and d < BITE_LUNGE + BITE_REACH:
-            b.start_bite(s.x, s.y)
-            self.bite_wait = self.rnd.randint(40, 75)
-        if b.lunge_t > 0 and not b.bite_done:
-            bx, by = b.bite_point()
-            dmg = 0
-            if math.hypot(bx - s.x, by - s.y) < BITE_RADIUS:
-                dmg = self.rnd.randint(24, 36)
-            elif any(math.hypot(bx - sx, by - sy) < BITE_RADIUS * 0.75 for sx, sy, _r, _i in s.segment_points()):
-                dmg = self.rnd.randint(12, 18)
-            if dmg:
-                self.foe.hp -= dmg
-                b.bite_done = True
-                for _ in range(6):
-                    particles.append(Particle(bx, by, (200, 40, 50)))
+    @property
+    def pos(self):
+        return self.body.x, self.body.y
 
-    def pick(self):
-        self.tx, self.ty = self.rnd.uniform(70, WIDTH - 70), self.rnd.uniform(150, HEIGHT - 100)
-
-    def step(self, particles=None):
+    def move_toward(self, tx, ty, speed):
         b = self.body
-        b.fluff_target = 1.0 if self.foe is not None else 0.0
-        if self.foe is not None:
-            self.fight(particles if particles is not None else [])
-            return
-        self.hp = min(100.0, self.hp + 0.05)   # heals slowly after a fight
-        if self.rest > 0:                      # stops now and then to sniff around
-            self.rest -= 1
-            return
-        dx, dy = self.tx - b.x, self.ty - b.y
+        dx, dy = tx - b.x, ty - b.y
         d = math.hypot(dx, dy)
-        if d < 6:
-            self.pick()
-            self.rest = self.rnd.randint(30, 150)
-            return
-        b.x += dx / d * self.speed
-        b.y += dy / d * self.speed
+        if d < 4:
+            return True
+        step = min(speed, d)
+        b.x += dx / d * step
+        b.y += dy / d * step
         if abs(dx) > 1:
             b.facing_right = dx > 0
-        b.anim_t += 0.15
+        b.anim_t += 0.1 * speed
+        return False
 
-    def draw(self, surface):
-        self.body.draw(surface)
+    def idle(self):
+        pass
+
+    def face(self, right):
+        self.body.facing_right = right
+
+    def pop_out(self):
+        self.hidden = False
+
+    def draw(self, surface, t):
+        if not self.hidden:
+            self.body.draw(surface)
 
 
 class JungleSnake:
-    """A wild viper (user, 2026-10-10): crawls out of a hole, roams the jungle on its own, and fights
-    any wild mongoose it spots. Smaller than the fighting vipers; never touches the players' fight."""
+    """A small wild viper playing hide-and-seek: it slithers into a hole to hide, peeks out now and then."""
+    kind = "snake"
 
     def __init__(self, rnd, hole):
         self.v = ViperEnemy(level=1, spawn=hole, hole=hole)
         self.v.scale = JUNGLE_SNAKE_SCALE
-        self.v.num_segments = 24
+        self.v.num_segments = 32
         self.rnd = rnd
-        self.hp = 100.0
-        self.foe = None                         # the wild mongoose it is fighting
-        self.strike_wait = rnd.randint(20, 50)
-        self.pick()
+        self.hidden = False
+        self.spot = None
+        self.state = "free"
+        self.enter_t = 0
+        self.k = rnd.randint(0, 50)
 
-    def pick(self):
-        self.tx, self.ty = self.rnd.uniform(70, WIDTH - 70), self.rnd.uniform(150, HEIGHT - 100)
+    @property
+    def pos(self):
+        return self.v.x, self.v.y
 
-    def crawl(self, tx, ty, speed):
-        v = self.v
-        ang = math.atan2(ty - v.y, tx - v.x)
-        wig = math.sin(v.slither_t) * 0.6
-        v.x += math.cos(ang + wig) * speed
-        v.y += math.sin(ang + wig) * speed
-        if v.strike_t <= 0:
-            v.heading = ang
-        v._push_history()
-
-    def step(self, particles):
+    def move_toward(self, tx, ty, speed):
         v = self.v
         v.slither_t += 0.14
-        v.tick_strike()
-        if self.foe is None:
-            self.hp = min(100.0, self.hp + 0.05)
-            if math.hypot(self.tx - v.x, self.ty - v.y) < 12:
-                self.pick()
-            self.crawl(self.tx, self.ty, 1.5)
-            return
-        m = self.foe.body
-        d = math.hypot(m.x - v.x, m.y - v.y)
-        if v.strike_t > 0:
-            self.crawl(m.x, m.y, 0.3)
-        elif d > 140:
-            self.crawl(m.x, m.y, 2.2)
-        else:
-            self.crawl(m.x, m.y, 0.6)
-        self.strike_wait -= 1
-        if self.strike_wait <= 0 and v.strike_t <= 0 and d < STRIKE_RANGE:
-            v.start_strike(m.x, m.y)
-            self.strike_wait = self.rnd.randint(45, 80)
-        if v.strike_can_hit():
-            hx, hy = v.strike_tip()
-            sx, sy = hx - v.x, hy - v.y
-            k = max(0.0, min(1.0, ((m.x - v.x) * sx + (m.y - v.y) * sy) / (sx * sx + sy * sy or 1.0)))
-            if math.hypot(v.x + sx * k - m.x, v.y + sy * k - m.y) < STRIKE_HIT_RADIUS * 0.8:
-                self.foe.hp -= self.rnd.randint(18, 30)
-                v.strike_hit = True
-                for _ in range(6):
-                    particles.append(Particle(hx, hy, (200, 40, 50)))
+        dx, dy = tx - v.x, ty - v.y
+        d = math.hypot(dx, dy)
+        if d < 8:
+            return True
+        ang = math.atan2(dy, dx)
+        wig = math.sin(v.slither_t) * 0.6 * min(1.0, d / 40)
+        step = min(speed, d)
+        v.x += math.cos(ang + wig) * step
+        v.y += math.sin(ang + wig) * step
+        v.heading = ang
+        v._push_history()
+        return False
 
-    def draw(self, surface):
+    def slither_in(self):
+        """Head stays in the hole while the body follows it down. Returns True when all of it is in."""
+        v = self.v
+        v.slither_t += 0.14
+        v.x, v.y = self.spot
+        v._push_history()
+        v.hole = self.spot
+        self.enter_t -= 1
+        return self.enter_t <= 0
+
+    def idle(self):
+        self.v.slither_t += 0.05
+
+    def face(self, right):
+        self.v.heading = 0.0 if right else math.pi
+
+    def pop_out(self):
+        if self.hidden:                          # crawls back out of the hole
+            v = self.v
+            v.x, v.y = self.spot
+            v.history = [self.spot for _ in v.history]
+            v.hole = self.spot
+        self.hidden = False
+
+    def draw(self, surface, t):
+        if self.hidden:
+            if math.sin(t * 0.02 + self.k) > 0.55:          # peeks out of its hole now and then
+                draw_peeking_snake(surface, self.spot, t, self.k)
+            return
         self.v.draw(surface)
 
 
-def jungle_life(mongooses, snakes, fx, particles, rnd, clock, busy_holes, call_fn=None):
-    """One frame of the wild jungle: everyone roams on their own; a free wild mongoose and a free
-    wild snake that spot each other fight until one is dead; newcomers keep the jungle full."""
-    for m in mongooses:
-        if m.foe is not None:
-            continue
-        free = [s for s in snakes if s.foe is None and not s.v.hole]
-        if free:
-            s = min(free, key=lambda s: math.hypot(s.v.x - m.body.x, s.v.y - m.body.y))
-            if math.hypot(s.v.x - m.body.x, s.v.y - m.body.y) < JUNGLE_SPOT_RANGE:
-                m.foe, s.foe = s, m
+class HideAndSeek:
+    """The wild mongooses and snakes play hide-and-seek together (user, 2026-10-10: 'not to fight at all').
+    One is "it": it counts while the others run to a hiding spot (snakes slither into holes; mongooses
+    duck behind bushes or down burrows), then it searches the spots. Whoever is found comes out and
+    tags along; when all are found (or 30 s pass) the first one found is "it" for the next round."""
+
+    def __init__(self, animals, rnd):
+        self.animals = animals
+        self.rnd = rnd
+        self.seeker = rnd.choice(animals)
+        self.new_round(())
+
+    def new_round(self, busy_holes):
+        self.phase, self.timer = "count", HIDE_COUNT_FRAMES
+        self.found, self.checked, self.target = [], set(), None
+        sx, sy = self.seeker.pos
+        taken = []
+        for a in self.animals:
+            if a is self.seeker:
+                a.state, a.spot = "it", None
+                continue
+            holes = [h for h in HOLES if h not in taken and h not in busy_holes]
+            bushes = [b for b in BUSH_SPOTS if b not in taken]
+            pool = holes if a.kind == "snake" or not bushes or self.rnd.random() < 0.4 else bushes
+            pool = sorted(pool, key=lambda p: -math.hypot(p[0] - sx, p[1] - sy))[:max(1, len(pool) // 2)]   # far from "it"
+            a.spot = self.rnd.choice(pool)
+            taken.append(a.spot)
+            a.state = "running"
+
+    def found_one(self, a, call_fn):
+        a.state = "found"
+        a.pop_out()
+        self.found.append(a)
+        if call_fn:
+            call_fn("mongoose" if a.kind == "mongoose" else "lizard", True)     # chatter / soft hiss: "found!"
+
+    def step(self, busy_holes, call_fn=None):
+        s = self.seeker
+        sx, sy = s.pos
+        for a in self.animals:
+            if a is s:
+                continue
+            if a.state == "running":
+                if a.move_toward(*a.spot, 2.6 if a.kind == "mongoose" else 2.2):
+                    if a.kind == "snake":
+                        a.state, a.enter_t = "entering", SNAKE_ENTER_FRAMES
+                    else:
+                        a.state = "hidden"
+                        a.hidden = a.spot in HOLES          # down a burrow; behind a bush it stays drawn (the bush covers it)
+            elif a.state == "entering":
+                if a.slither_in():
+                    a.state, a.hidden = "hidden", True
+            elif a.state == "hidden":
+                a.idle()
+            elif a.state == "found":                         # tags along behind "it"
+                off = 70 + 40 * (self.found.index(a) if a in self.found else 0)
+                if a.move_toward(sx - off, sy + 30, 1.7):
+                    a.idle()
+        if self.phase == "count":
+            s.idle()
+            s.face(sx < WIDTH / 2)                           # turns its back while it counts
+            self.timer -= 1
+            if self.timer <= 0:
+                self.phase, self.timer = "seek", HIDE_SEEK_FRAMES
                 if call_fn:
-                    call_fn("mongoose", True)
-    for m in mongooses:
-        m.step(particles)
-    for s in snakes:
-        was = s.v.strike_t
-        s.step(particles)
-        if call_fn and s.v.strike_t > was:
-            call_fn("snake", True)
-    for s in snakes[:]:
-        if s.hp <= 0:                           # the snake is killed: it breaks apart
-            fx.extend(s.v.burst_pieces())
-            if s.foe is not None:
-                s.foe.foe = None
-            snakes.remove(s)
-    for m in mongooses[:]:
-        if m.hp <= 0:                           # the mongoose is killed: it collapses in the dust
-            for _ in range(14):
-                particles.append(Particle(m.body.x, m.body.y, (140, 115, 80)))
-            if m.foe is not None:
-                m.foe.foe = None
-            mongooses.remove(m)
-    clock["t"] += 1
-    if clock["t"] >= JUNGLE_RESPAWN_FRAMES:
-        clock["t"] = 0
-        if len(snakes) < JUNGLE_SNAKES:
-            holes = [h for h in HOLES if h not in busy_holes]
-            if holes:
-                snakes.append(JungleSnake(rnd, rnd.choice(holes)))
-        if len(mongooses) < JUNGLE_MONGOOSES:
-            mongooses.append(JungleMongoose(rnd, from_edge=True))
-    for piece in fx[:]:
-        piece.update()
-        if piece.life <= 0:
-            fx.remove(piece)
+                    call_fn("mongoose" if s.kind == "mongoose" else "lizard", False)   # "ready or not"
+            return
+        self.timer -= 1
+        if self.target is None:
+            spots = [p for p in HOLES + BUSH_SPOTS if p not in self.checked and p not in busy_holes]
+            if not spots:
+                self.checked = set()
+                spots = HOLES + BUSH_SPOTS
+            near = sorted(spots, key=lambda p: math.hypot(p[0] - sx, p[1] - sy))[:3]
+            self.target = self.rnd.choice(near)
+        if s.move_toward(*self.target, 1.9):
+            self.checked.add(self.target)
+            self.target = None
+        for a in self.animals:
+            if a is s or a.state == "found":
+                continue
+            ax, ay = a.spot if a.state in ("hidden", "entering") else a.pos
+            d = math.hypot(ax - sx, ay - sy)
+            seen = a.state == "running" and d < 120              # caught out in the open
+            if seen or d < 45:                                   # or "it" reaches the hiding spot
+                if a.state == "entering":
+                    a.hidden = True
+                self.found_one(a, call_fn)
+        hiders = [a for a in self.animals if a is not s]
+        if all(a.state == "found" for a in hiders) or self.timer <= 0:
+            for a in hiders:
+                if a.state != "found":
+                    a.hidden = a.hidden or a.state == "entering"
+                    a.pop_out()
+            self.seeker = self.found[0] if self.found else self.rnd.choice(hiders)
+            self.new_round(busy_holes)
 
 
 SHADOW = (34, 26, 17)
@@ -1210,8 +1234,7 @@ def make_foliage():
     canopy(10, 230, 120)
     trunk(WIDTH - 26, 470, 610, 36)
     canopy(WIDTH - 6, 400, 125)
-    for cx, cy, r in ((70, HEIGHT - 110, 46), (400, HEIGHT - 84, 40), (880, HEIGHT - 88, 44),
-                      (WIDTH - 210, HEIGHT - 82, 42), (WIDTH - 60, 215, 44), (30, 590, 40)):
+    for cx, cy, r in BUSHES:
         bush(cx, cy, r)
     return items
 
@@ -2167,7 +2190,7 @@ class ViperEnemy(Fighter):
 
     def body_radius(self, t):
         """Real snake shape: thin neck behind a wide head, thick body, tail tapering to a point."""
-        r = 2.0 + 11.0 * (1.0 - t) ** 0.85
+        r = 2.5 + 10.5 * (1.0 - t) ** 0.5          # thick almost to the end, short point at the tip
         if t < 0.06:
             r *= 0.8 + t / 0.06 * 0.2
         return r * getattr(self, "scale", VIPER_SCALE)
@@ -2318,8 +2341,7 @@ async def main():
     jungle_rnd = random.Random()
     jungle = [JungleMongoose(jungle_rnd) for _ in range(JUNGLE_MONGOOSES)]
     wild_snakes = [JungleSnake(jungle_rnd, h) for h in jungle_rnd.sample(HOLES, JUNGLE_SNAKES)]
-    wild_fx = []                       # pieces of wild snakes killed by wild mongooses
-    wild_clock = {"t": 0}
+    hide_seek = HideAndSeek(jungle + wild_snakes, jungle_rnd)
     kinds_now = jungle_rnd.sample(list(ONLOOKER_KINDS), ONLOOKER_KINDS_AT_ONCE)
     onlookers = [Onlooker(k, jungle_rnd) for k in kinds_now]
     onlooker_layer = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -3395,27 +3417,23 @@ async def main():
         canvas.blit(ground, (0, 0))          # all play is on the ground (user, 2026-10-10)
         world_t["t"] += 1
         busy = [v.hole for v in vipers if v.hole]
-        free_holes = [h for h in HOLES if h not in busy]
+        hide_holes = [a.spot for a in hide_seek.animals if a.spot in HOLES]
+        free_holes = [h for h in HOLES if h not in busy and h not in hide_holes]
         for k in range(min(len(reserve), len(free_holes))):      # the rest of the pack, waiting in holes
             draw_peeking_snake(canvas, free_holes[k], world_t["t"], k)
         live = [p for p in players if p.hp > 0]
         for p in live:                                            # fur bristles up when a viper is close or rears up
             p.fluff_target = 1.0 if any(v.strike_t > 0 or math.hypot(v.x - p.x, v.y - p.y) < STRIKE_RANGE + 40 for v in vipers) else 0.0
-        threats = [(p.x, p.y) for p in live] + [(v.x, v.y) for v in vipers] + [(m.body.x, m.body.y) for m in jungle if m.foe]
+        threats = [(p.x, p.y) for p in live] + [(v.x, v.y) for v in vipers]
         onlooker_life(onlookers, kinds_now, jungle_rnd, onlooker_clock, (live[0].x, live[0].y) if live else None, threats, animal_call)
         onlooker_layer.fill((0, 0, 0, 0))
         for a in sorted(onlookers, key=lambda a: a.y):            # the jungle's other animals, watching (softer)
             a.draw(onlooker_layer)
         onlooker_layer.set_alpha(ONLOOKER_ALPHA)
         canvas.blit(onlooker_layer, (0, 0))
-        busy_holes = busy + [s.v.hole for s in wild_snakes if s.v.hole]
-        jungle_life(jungle, wild_snakes, wild_fx, particles, jungle_rnd, wild_clock, busy_holes, animal_call)
-        for s in wild_snakes:                                     # wild snakes and mongooses, living on their own
-            s.draw(canvas)
-        for jm in jungle:
-            jm.draw(canvas)
-        for piece in wild_fx:
-            piece.draw(canvas)
+        hide_seek.step(busy, animal_call)                         # wild mongooses and snakes playing hide-and-seek
+        for a in sorted(hide_seek.animals, key=lambda a: a.pos[1]):
+            a.draw(canvas, world_t["t"])
 
         for s in shards:
             s.draw(canvas)
