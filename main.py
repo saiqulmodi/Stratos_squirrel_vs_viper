@@ -7,7 +7,7 @@ import asyncio
 from array import array
 import pygame
 
-GAME_NAME = "Stratos_squirrel_vs_viper"
+GAME_NAME = "Survival - Mongoose vs Viper"
 GAME_VERSION = "v15 MOBILE"
 
 # ---------------------------------------------------------
@@ -512,32 +512,56 @@ def fighter_speed(level):
 
 MAX_VIPERS_ON_SCREEN = 10
 
+# Viper head strike (user, 2026-10-10): snakes close in and bite with a big extended head
+STRIKE_RANGE = 200        # a mongoose this close gets struck instead of spat at
+STRIKE_REACH = 165.0      # how far the head shoots out
+STRIKE_STAND = 10         # frames the viper stands up (rears back) before it strikes - the warning
+STRIKE_SHOOT = 3          # frames for the head to shoot out: very fast
+STRIKE_HOLD = 3           # frames at full reach
+STRIKE_FRAMES = 24        # stand 10, shoot 3, hold 3, pull back 8 (0.4 s)
+STRIKE_HIT_RADIUS = 34    # bite hit size around the striking head (the mongoose is drawn bigger now)
+STRIKE_HEAD_SCALE = 1.7   # head size at full reach
+
+# Look of the fighters (drawing only, never changes hit sizes or balance)
+MONGOOSE_SCALE = 1.4
+MONGOOSE_COLORS = {                 # fur, dark fur, belly, tail tip
+    1: ((140, 124, 98), (80, 68, 52), (198, 182, 150), (45, 38, 30)),     # Indian grey mongoose
+    2: ((172, 100, 54), (106, 56, 28), (224, 162, 112), (60, 30, 15)),    # ruddy mongoose
+}
+MONGOOSE_GRIZZLE = [(-24, -8), (-14, -4), (-4, -9), (6, -5), (16, -9), (-18, 2), (-6, 1), (8, 2), (20, -1)]
+VIPER_PALETTES = {
+    "ai": {"style": "chain", "body": (178, 142, 90), "head": (165, 128, 80), "outline": (38, 26, 16),
+           "blotch": (96, 54, 28), "ring": (22, 14, 8), "rim": (236, 222, 186), "tail": None},       # Russell's viper
+    "human": {"style": "bands", "body": (70, 165, 55), "head": (82, 182, 62), "outline": (18, 50, 16),
+              "blotch": (40, 110, 35), "ring": (18, 50, 16), "rim": (200, 235, 120), "tail": (210, 70, 30)},  # green pit viper
+}
+
 # Human vs AI: every human-controlled character gets +10% attack, speed, defense and health
 # on top of the normal level growth (which is the same rate for AI and humans).
 # Player vs player (mode 3) stays exactly equal.
 HUMAN_EDGE = 1.10
 
 MODE_NAMES = {
-    1: "SOLO SQUIRREL vs AI",
-    2: "DUAL SQUIRRELS vs AI",
-    3: "SQUIRREL vs VIPER (P1 vs P2)",
-    4: "VIPER vs AI SQUIRREL",
-    5: "DUAL VIPERS vs AI SQUIRRELS",
+    1: "SOLO MONGOOSE vs AI",
+    2: "DUAL MONGOOSES vs AI",
+    3: "MONGOOSE vs VIPER (P1 vs P2)",
+    4: "VIPER vs AI MONGOOSE",
+    5: "DUAL VIPERS vs AI MONGOOSES",
 }
 SQUIRREL_HUMAN_MODES = (1, 2, 3)     # modes where squirrels are human-controlled
 VS_AI_MODES = (1, 2, 4, 5)           # humans on one side, AI on the other -> human +10%
 
 def pack_size(level, squirrels=1):
-    """Vipers per squirrel: 1 at levels 1-5, 2 at 6-10, 3 at 11-15 ... (the original growth),
+    """Vipers per mongoose: 1 at levels 1-5, 2 at 6-10, 3 at 11-15 ... (the original growth),
     capped so there are never more than 10 vipers on screen in total."""
     grow = 1 + (max(1, level) - 1) // 5
     return max(1, min(grow, MAX_VIPERS_ON_SCREEN // max(1, squirrels)))
 
 class Fighter:
-    """Everything combat-related lives here, so squirrel and viper can never drift apart."""
+    """Everything combat-related lives here, so mongoose and viper can never drift apart."""
 
     def apply_level_up(self, level, power_mult=1, human_edge=False):
-        """power_mult: a squirrel facing a pack of N vipers gets N x HP, DEF and ATK,
+        """power_mult: a mongoose facing a pack of N vipers gets N x HP, DEF and ATK,
         so both sides always have the same total strength.
         human_edge: a human playing against AI gets +10% HP, DEF, ATK (and speed)."""
         self.level = max(1, level)
@@ -651,33 +675,104 @@ class SquirrelPlayer(Fighter):
         self.tick_timers()
 
     def draw(self, surface):
-        tail_dir = -1 if self.facing_right else 1
-        tail_wave = math.sin(self.anim_t * 1.5) * 6
-        tint = (215, 145, 80) if self.player_id == 1 else (100, 200, 255)
-        base_fur = (190, 115, 50) if self.player_id == 1 else (60, 130, 200)
+        """A real-looking, fighting-mad mongoose (user, 2026-10-10): grizzled fur, long low body,
+        bristling crest and puffed-up tail, red eyes, bared fangs, claws. Drawn in side view,
+        bigger than the old mongoose; the hit size (HIT_RADIUS) is unchanged so balance stays the same."""
+        S = MONGOOSE_SCALE
+        f = 1 if self.facing_right else -1
+        ox, oy = self.x, self.y
+        fur, dark, light, tip = MONGOOSE_COLORS.get(self.player_id, MONGOOSE_COLORS[1])
+        outline = (22, 18, 14)
 
-        for seg in range(6):
-            tx = self.x + tail_dir * (22 + seg * 7)
-            ty = self.y + 6 + math.sin(self.anim_t + seg * 0.4) * 8 + tail_wave
-            rad = max(4, 11 - seg)
-            pygame.draw.circle(surface, base_fur, (int(tx), int(ty)), rad)
-            pygame.draw.circle(surface, tint, (int(tx), int(ty)), rad - 2)
+        def at(lx, ly):
+            return (int(ox + lx * S * f), int(oy + ly * S))
 
-        pygame.draw.ellipse(surface, base_fur, (self.x - 22, self.y - 12, 44, 24))
-        pygame.draw.ellipse(surface, tint, (self.x - 16, self.y - 8, 32, 16))
+        def circ(col, lx, ly, r):
+            pygame.draw.circle(surface, col, at(lx, ly), max(1, int(r * S)))
 
-        hx = self.x + (16 if self.facing_right else -16)
-        hy = self.y - 6
-        pygame.draw.circle(surface, tint, (int(hx), int(hy)), 12)
+        def oval(col, cx, cy, w, h):
+            rect = pygame.Rect(0, 0, int(w * S), int(h * S))
+            rect.center = at(cx, cy)
+            pygame.draw.ellipse(surface, col, rect)
 
-        ear_x = hx - (4 if self.facing_right else -4)
-        ear_y = hy - 11
-        pygame.draw.circle(surface, (150, 80, 30), (int(ear_x), int(ear_y)), 5)
-        pygame.draw.circle(surface, (240, 180, 140), (int(ear_x), int(ear_y)), 2)
+        def poly(col, pts, width=0):
+            pygame.draw.polygon(surface, col, [at(*p) for p in pts], width)
 
-        eye_x = hx + (4 if self.facing_right else -4)
-        pygame.draw.circle(surface, (25, 25, 25), (int(eye_x), int(hy - 2)), 3)
-        pygame.draw.circle(surface, (255, 255, 255), (int(eye_x + 1), int(hy - 3)), 1)
+        def line(col, a, b, w):
+            pygame.draw.line(surface, col, at(*a), at(*b), max(1, int(w * S)))
+
+        last = getattr(self, "_last_xy", (ox, oy))
+        moving = math.hypot(ox - last[0], oy - last[1]) > 0.3
+        self._last_xy = (ox, oy)
+        stride = math.sin(self.anim_t * 2.4) if moving else 0.0
+        wave = math.sin(self.anim_t * 1.3)
+        jaw = 6 if self.shot_timer > self.shot_cd - 5 else 2      # mouth snaps wide open on every shot
+
+        # Tail: long and tapering, fur puffed up the way a mongoose fluffs it against a snake
+        tail = _chain([(-34, -2), (-52, wave * 2), (-68, 4 + wave * 4), (-84, 2 + wave * 6), (-98, -2 + wave * 7)], 14, 5, step=4)
+        for (lx, ly), r in tail:
+            circ(outline, lx, ly, r + 1.5)
+        for k, ((lx, ly), r) in enumerate(tail):
+            circ(tip if k > len(tail) * 0.72 else fur, lx, ly, r)
+        for k in range(0, len(tail) - 2, 2):
+            (lx, ly), r = tail[k]
+            line(dark, (lx, ly - r + 1), (lx - 4, ly - r - 5), 1.5)
+            line(dark, (lx, ly + r - 1), (lx - 4, ly + r + 4), 1.5)
+
+        def leg(hx, phase, col):
+            sw = stride * 7 * phase
+            knee, foot = (hx + sw * 0.4, 15), (hx + sw, 24)
+            line(outline, (hx, 6), knee, 11)
+            line(outline, knee, foot, 9)
+            line(col, (hx, 6), knee, 8)
+            line(col, knee, foot, 6)
+            oval(outline, foot[0] + 2, foot[1], 11, 6)
+            for c in (-1.5, 0, 1.5):                                         # claws
+                line((235, 230, 215), (foot[0] + 6, foot[1] + c), (foot[0] + 9, foot[1] + c + 1), 1)
+
+        leg(-26, -1, dark)          # far legs
+        leg(18, 1, dark)
+
+        # Body: long and low, lighter belly, grizzled fur, bristling crest along the back
+        oval(outline, 0, 0, 84, 34)
+        oval(fur, 0, 0, 80, 30)
+        oval(light, 2, 7, 62, 13)
+        for lx in range(-34, 24, 6):
+            spike = [(lx, -12), (lx + 2, -20 - ((lx // 6) % 2) * 3), (lx + 6, -12)]
+            poly(dark, spike)
+            poly(outline, spike, 1)
+        for lx, ly in MONGOOSE_GRIZZLE:
+            line(dark, (lx, ly), (lx - 3, ly + 5), 1.5)
+            line(light, (lx + 3, ly + 1), (lx + 1, ly + 4), 1)
+
+        leg(-20, 1, fur)            # near legs
+        leg(24, -1, fur)
+
+        # Neck and head, raised and pushed forward to strike
+        oval(outline, 28, -9, 26, 24)
+        oval(fur, 28, -9, 22, 20)
+        oval(outline, 40, -14, 34, 26)
+        oval(fur, 40, -14, 30, 22)
+        poly((110, 18, 24), [(48, -8), (67, -10), (62, -9 + jaw), (48, -6 + jaw * 0.6)])   # open mouth
+        for tx in (52, 56):                                                               # teeth
+            poly((245, 240, 225), [(tx, -9), (tx + 2, -9), (tx + 1, -6.5)])
+        poly((250, 248, 235), [(60, -10), (62.5, -10), (61, -4.5)])                       # upper fang
+        poly((250, 248, 235), [(57, -7 + jaw * 0.8), (59, -7 + jaw * 0.8), (58, -11 + jaw * 0.8)])  # lower fang
+        line(fur, (48, -5 + jaw * 0.6), (62, -8 + jaw), 3)                                # lower jaw
+        snout = [(50, -22), (66, -15), (68, -11), (52, -8)]
+        poly(fur, snout)
+        poly(outline, snout, 2)
+        circ((30, 22, 22), 67, -13, 3)                                                    # nose
+        circ(outline, 31, -24, 5.5)                                                       # ear
+        circ(dark, 31, -24, 4.5)
+        circ(light, 31, -23, 2)
+        circ(outline, 45, -17, 4.2)                                                       # red eye
+        circ((235, 70, 25), 45, -17, 3.2)
+        circ((10, 5, 5), 46, -17, 1.6)
+        circ((255, 230, 200), 44, -18, 0.8)
+        line(outline, (38, -23), (50, -19), 2.5)                                          # angry brow
+        for dy in (-3, 0, 3):                                                             # whiskers
+            line(light, (60, -13), (73, -14 + dy), 0.8)
 
 # ---------------------------------------------------------
 # 7. VIPER
@@ -708,6 +803,9 @@ class ViperEnemy(Fighter):
         self.slither_t = random.uniform(0, 10)
         self.ai_fire_wait = random.randint(40, 90)
         self.last_hit_by = None
+        self.strike_t = 0          # frames left in a head strike (0 = not striking)
+        self.strike_ang = 0.0
+        self.strike_hit = False    # a strike can hit only once
         self.apply_level_up(level, human_edge=human_edge)
 
     def apply_level_up(self, level, power_mult=1, human_edge=False):
@@ -727,9 +825,52 @@ class ViperEnemy(Fighter):
         if len(self.history) > max_h:
             self.history = self.history[:max_h]
 
+    def start_strike(self, tx, ty):
+        """Head strike at a nearby mongoose (user, 2026-10-10): rear back, shoot the head out
+        STRIKE_REACH px with jaws open, pull back. Same damage and cooldown as a venom spit."""
+        self.strike_t = STRIKE_FRAMES
+        self.strike_ang = math.atan2(ty - self.y, tx - self.x)
+        self.heading = self.strike_ang
+        self.strike_hit = False
+
+    def strike_extension(self):
+        """How far the head is pushed out right now (negative = rearing back)."""
+        if self.strike_t <= 0:
+            return 0.0
+        done = STRIKE_FRAMES - self.strike_t
+        if done < STRIKE_STAND:                                            # stands up, head drawn back
+            return -15.0 * (done + 1) / STRIKE_STAND
+        done -= STRIKE_STAND
+        if done < STRIKE_SHOOT:                                            # head shoots out, fast
+            return -15.0 + (STRIKE_REACH + 15.0) * (done + 1) / STRIKE_SHOOT
+        done -= STRIKE_SHOOT
+        if done < STRIKE_HOLD:
+            return STRIKE_REACH
+        done -= STRIKE_HOLD
+        back = STRIKE_FRAMES - STRIKE_STAND - STRIKE_SHOOT - STRIKE_HOLD   # pull back
+        return STRIKE_REACH * (1.0 - (done + 1) / back)
+
+    def standing(self):
+        """0..1: how far the viper has reared up (stand phase), stays up until the strike ends."""
+        if self.strike_t <= 0:
+            return 0.0
+        return min(1.0, (STRIKE_FRAMES - self.strike_t + 1) / STRIKE_STAND)
+
+    def strike_tip(self):
+        ext = self.strike_extension()
+        return self.x + math.cos(self.strike_ang) * ext, self.y + math.sin(self.strike_ang) * ext
+
+    def strike_can_hit(self):
+        return self.strike_t > 0 and not self.strike_hit and self.strike_extension() > STRIKE_REACH * 0.35
+
+    def tick_strike(self):
+        if self.strike_t > 0:
+            self.strike_t -= 1
+
     def update_ai(self, targets, projectiles_list, spit_fn, burst_fn, shards=()):
         self.slither_t += 0.14
         self.tick_timers()
+        self.tick_strike()
         active_targets = [t for t in targets if t.hp > 0]
         if not active_targets:
             return
@@ -757,26 +898,30 @@ class ViperEnemy(Fighter):
                     break
 
         lunge = 1.35 if dist < 170 else 1.0
+        if self.strike_t > 0:
+            lunge = 0.4                    # body slows while the head strikes
         angle = math.atan2(move_y - self.y, move_x - self.x)
         wiggle = math.sin(self.slither_t) * 0.70
-        self.heading = angle
+        self.heading = self.strike_ang if self.strike_t > 0 else angle
 
         self.x += (math.cos(angle + wiggle) * self.base_speed * lunge) + evade_x
         self.y += (math.sin(angle + wiggle) * self.base_speed * lunge) + evade_y
         self._push_history()
 
-        # Same weapons and cooldowns as the squirrel; the AI just chooses to fire less often
+        # Same weapons and cooldowns as the mongoose; the AI just chooses to fire less often.
+        # AI vipers spit venom from far away; a mongoose within STRIKE_RANGE gets a stand-up head strike instead (user, 2026-10-10).
         self.ai_fire_wait -= 1
         if dist < 220 and self.special_timer <= 0:
             burst_fn(self)
-        elif self.ai_fire_wait <= 0 and dist < 450:
+        elif self.ai_fire_wait <= 0 and self.strike_t <= 0 and dist < 450:
             self.ai_fire_wait = self.shot_cd * 4 + random.randint(0, 30)
             spit_fn(self, tx, ty)
 
     def update_manual(self, dx, dy):
         self.slither_t += 0.14
         self.tick_timers()
-        if dx or dy:
+        self.tick_strike()
+        if (dx or dy) and self.strike_t <= 0:
             self.heading = math.atan2(dy, dx)
         self.x = max(50, min(WIDTH - 50, self.x + dx * self.base_speed))
         self.y = max(50, min(HEIGHT - 50, self.y + dy * self.base_speed))
@@ -792,47 +937,146 @@ class ViperEnemy(Fighter):
             pts.append((sx, sy, int(max(3, (7 + ratio * 8) * self.tail_scale)), i))
         return pts
 
+    def palette(self):
+        return VIPER_PALETTES["human" if self.is_player_controlled else "ai"]
+
     def colors(self, i):
         """(outer, inner) colours of segment i -- same palette as draw()."""
-        if self.is_player_controlled:
-            return ((160, 25, 55) if i % 2 == 0 else (220, 50, 85)), (255, 130, 160)
-        return ((25, 90, 45) if i % 2 == 0 else (45, 140, 65)), (140, 220, 100)
+        pal = self.palette()
+        return (pal["blotch"] if i % 2 == 0 else pal["outline"]), pal["body"]
 
     def burst_pieces(self):
         """The viper broken into pieces: one per segment plus the head."""
         pieces = [BurstPiece(sx, sy, r, *self.colors(i), self.x, self.y) for sx, sy, r, i in self.segment_points()]
-        head_outer = (130, 20, 30) if self.is_player_controlled else (20, 85, 40)
-        head_inner = (220, 60, 80) if self.is_player_controlled else (60, 170, 75)
+        pal = self.palette()
         for _ in range(3):   # the head splits into three bigger pieces
-            pieces.append(BurstPiece(self.x, self.y, 11, head_outer, head_inner, self.x, self.y))
+            pieces.append(BurstPiece(self.x, self.y, 11, pal["outline"], pal["head"], self.x, self.y))
         return pieces
 
+    @staticmethod
+    def body_radius(t):
+        """Real snake shape: thin neck behind a wide head, thick body, tail tapering to a point."""
+        r = 2.0 + 11.0 * (1.0 - t) ** 0.85
+        if t < 0.06:
+            r *= 0.8 + t / 0.06 * 0.2
+        return r
+
     def draw(self, surface):
-        step = 3
-        for i in range(self.num_segments - 1, 0, -1):
-            idx = min(len(self.history) - 1, i * step)
-            sx, sy = self.history[idx]
-            ratio = 1.0 - (i / self.num_segments)
-            radius = int(max(3, (7 + ratio * 8) * self.tail_scale))
+        """A real-looking viper seen from above (user, 2026-10-10): smooth tapering body,
+        scale pattern, triangular head, slit-pupil eyes, flicking forked tongue.
+        AI vipers are Russell's vipers (tan with chained dark ovals); a human-steered viper is a
+        green pit viper with a red tail tip, so players can always tell their own snake apart."""
+        pal = self.palette()
+        n = self.num_segments * 3
 
-            col_dark = (25, 90, 45) if (i % 2 == 0) else (45, 140, 65)
-            if self.is_player_controlled:
-                col_dark = (160, 25, 55) if (i % 2 == 0) else (220, 50, 85)
+        # Smooth centre line, a point every ~3 px from the head back to the tail tip
+        path, prev = [], None
+        for k, (px, py) in enumerate(self.history[:n]):
+            t = k / n
+            if prev is None:
+                path.append((px, py, t))
+                prev = (px, py, t)
+                continue
+            d = math.hypot(px - prev[0], py - prev[1])
+            if d < 3:
+                continue
+            steps = int(d / 3)
+            for s in range(1, steps + 1):
+                a = s / steps
+                path.append((prev[0] + (px - prev[0]) * a, prev[1] + (py - prev[1]) * a, prev[2] + (t - prev[2]) * a))
+            prev = (px, py, t)
 
-            pygame.draw.circle(surface, col_dark, (int(sx), int(sy)), radius)
-            pygame.draw.circle(surface, (140, 220, 100) if not self.is_player_controlled else (255, 130, 160), (int(sx), int(sy)), max(1, radius - 3))
+        for x, y, t in path:
+            pygame.draw.circle(surface, pal["outline"], (int(x), int(y)), int(self.body_radius(t) + 2))
+        for x, y, t in reversed(path):
+            col = pal["tail"] if pal["tail"] and t > 0.8 else pal["body"]
+            pygame.draw.circle(surface, col, (int(x), int(y)), max(1, int(self.body_radius(t))))
 
-        head_r = 16
-        head_col = (130, 20, 30) if self.is_player_controlled else (20, 85, 40)
-        pygame.draw.circle(surface, head_col, (int(self.x), int(self.y)), head_r)
-        pygame.draw.circle(surface, (60, 170, 75) if not self.is_player_controlled else (220, 60, 80), (int(self.x), int(self.y)), head_r - 3)
+        def frame(idx):
+            ax, ay = path[max(0, idx - 2)][:2]
+            bx, by = path[min(len(path) - 1, idx + 2)][:2]
+            dx, dy = ax - bx, ay - by
+            L = math.hypot(dx, dy) or 1.0
+            return dx / L, dy / L
 
-        head_ang = self.heading
-        eye_off = 8
-        e1 = (int(self.x + math.cos(head_ang + 0.8) * eye_off), int(self.y + math.sin(head_ang + 0.8) * eye_off))
-        e2 = (int(self.x + math.cos(head_ang - 0.8) * eye_off), int(self.y + math.sin(head_ang - 0.8) * eye_off))
-        pygame.draw.circle(surface, (255, 30, 30), e1, 3)
-        pygame.draw.circle(surface, (255, 30, 30), e2, 3)
+        def oval(cx, cy, ux, uy, a, b, col):
+            pts = []
+            for k in range(10):
+                ang = k * math.pi / 5
+                ca, sa = math.cos(ang) * a, math.sin(ang) * b
+                pts.append((cx + ux * ca - uy * sa, cy + uy * ca + ux * sa))
+            pygame.draw.polygon(surface, col, pts)
+
+        # Scale pattern along the back
+        for idx in range(5, len(path) - 3, 7):
+            x, y, t = path[idx]
+            r = self.body_radius(t)
+            if r < 4 or (pal["tail"] and t > 0.8):
+                continue
+            ux, uy = frame(idx)
+            if pal["style"] == "chain":
+                oval(x, y, ux, uy, r * 0.62 + 2.2, r * 0.48 + 2.2, pal["rim"])
+                oval(x, y, ux, uy, r * 0.62 + 1.0, r * 0.48 + 1.0, pal["ring"])
+                oval(x, y, ux, uy, r * 0.62, r * 0.48, pal["blotch"])
+                if idx + 3 < len(path) - 1:                       # side rows of smaller spots
+                    sx, sy, st = path[idx + 3]
+                    sr = self.body_radius(st)
+                    vx, vy = frame(idx + 3)
+                    for side in (-1, 1):
+                        oval(sx - vy * sr * 0.72 * side, sy + vx * sr * 0.72 * side, vx, vy, sr * 0.26, sr * 0.2, pal["blotch"])
+            else:
+                oval(x, y, ux, uy, r * 0.22, r * 0.95, pal["blotch"])
+                oval(x - uy * r * 0.35, y + ux * r * 0.35, ux, uy, r * 0.5, r * 0.12, pal["rim"])
+
+        # Head strike: the neck stretches out and the head grows, jaws wide open
+        ext = self.strike_extension()
+        reach = max(0.0, ext) / STRIKE_REACH
+        stand = self.standing()
+        hs = max(1.0 + 0.35 * stand, 1.0 + (STRIKE_HEAD_SCALE - 1.0) * reach)   # raised head looks bigger
+        ang = self.strike_ang if self.strike_t > 0 else self.heading
+        cu, su = math.cos(ang), math.sin(ang)
+        hx0, hy0 = self.x + cu * ext, self.y + su * ext
+        if ext > 2:
+            neck = _chain([(self.x, self.y), (hx0, hy0)], self.body_radius(0.0), self.body_radius(0.0) * (1 + reach * 0.3), step=3)
+            for (nx, ny), r in neck:
+                pygame.draw.circle(surface, pal["outline"], (int(nx), int(ny)), int(r + 2))
+            for (nx, ny), r in neck:
+                pygame.draw.circle(surface, pal["body"], (int(nx), int(ny)), int(r))
+            for k in range(2, len(neck) - 2, 5):
+                (nx, ny), r = neck[k]
+                oval(nx, ny, cu, su, r * 0.22, r * 0.9, pal["blotch"])
+
+        if stand > 0:                                                         # shadow under the raised head
+            sh = pygame.Rect(0, 0, int(34 * hs), int(18 * hs))
+            sh.center = (int(hx0 + 6), int(hy0 + 10 * stand))
+            pygame.draw.ellipse(surface, (8, 8, 14), sh)
+
+        def H(u, v):
+            u, v = u * hs, v * hs
+            return (hx0 + cu * u - su * v, hy0 + su * u + cu * v)
+
+        if reach > 0.3:                                                       # open mouth and fangs
+            pygame.draw.polygon(surface, pal["outline"], [H(18, -9), H(36, -15), H(30, 0), H(36, 15), H(18, 9)])
+            pygame.draw.polygon(surface, (200, 40, 70), [H(19, -7), H(34, -13), H(28, 0), H(34, 13), H(19, 7)])
+            for side in (-1, 1):
+                pygame.draw.polygon(surface, (250, 248, 235), [H(33, 12 * side), H(30, 9 * side), H(24, 9 * side)])
+                pygame.draw.polygon(surface, (250, 248, 235), [H(31, 7 * side), H(29, 4 * side), H(25, 6 * side)])
+
+        tongue_out = reach <= 0.3 and math.sin(self.slither_t * 1.7) > 0.55
+        if tongue_out:
+            red = (215, 30, 60)
+            pygame.draw.line(surface, red, H(25, 0), H(36, 0), 2)
+            pygame.draw.lines(surface, red, False, [H(41, -4), H(36, 0), H(41, 4)], 2)
+        head = [(24, -4), (26, 0), (24, 4), (14, 10), (2, 13), (-7, 9), (-9, 0), (-7, -9), (2, -13), (14, -10)]
+        pygame.draw.polygon(surface, pal["head"], [H(u, v) for u, v in head])
+        pygame.draw.polygon(surface, pal["outline"], [H(u, v) for u, v in head], 2)
+        pygame.draw.polygon(surface, pal["blotch"], [H(u, v) for u, v in ((15, 0), (1, -9), (-4, -7), (8, 0), (-4, 7), (1, 9))])
+        for side in (-1, 1):
+            pygame.draw.circle(surface, pal["outline"], H(8, 9 * side), int(5 * hs))
+            pygame.draw.circle(surface, (235, 190, 40), H(8, 9 * side), int(4 * hs))
+            pygame.draw.line(surface, (10, 10, 10), H(5.5, 9 * side), H(10.5, 9 * side), 2)    # slit pupil
+            pygame.draw.line(surface, pal["outline"], H(2, 12.5 * side), H(14, 11 * side), 2)   # brow ridge
+            pygame.draw.circle(surface, pal["outline"], H(21, 2.5 * side), 1)                    # nostril
 
 # ---------------------------------------------------------
 # 8. MAIN ENGINE LOOP
@@ -871,7 +1115,7 @@ async def main():
     particles = []
     shards = []
     high_score = get_stored_high_score()
-    pvp_wins = {"squirrel": 0, "viper": 0}
+    pvp_wins = {"mongoose": 0, "viper": 0}
     viper_team = {"score": 0}          # Viper modes (4, 5): points for beating AI squirrels
     wave_state = {"pending": True}     # a new viper pack is due (start of a level)
     bursts = []                        # pieces + flash of beaten vipers (BurstPiece / BurstFlash)
@@ -939,7 +1183,7 @@ async def main():
 
     def pad_aim(j, unit, enemies, fallback_angle):
         """Right stick aims. With the stick idle: AI modes aim at the nearest enemy,
-        Squirrel vs Viper shoots straight ahead (no auto-aim for either player)."""
+        Mongoose vs Viper shoots straight ahead (no auto-aim for either player)."""
         try:
             if j.get_numaxes() >= 4:
                 rx, ry = j.get_axis(2), j.get_axis(3)
@@ -976,7 +1220,7 @@ async def main():
     def next_mode():
         nonlocal game_mode
         game_mode = (game_mode % len(MODE_NAMES)) + 1
-        pvp_wins["squirrel"] = pvp_wins["viper"] = 0
+        pvp_wins["mongoose"] = pvp_wins["viper"] = 0
         viper_team["score"] = 0
         reset_game(level_state["level"])
 
@@ -1018,13 +1262,13 @@ async def main():
         if message is None:
             plural = "S" if pack > 1 else ""
             if game_mode in (4, 5):
-                message = (f"LEVEL {level}  |  YOU LEAD {pack} VIPER{plural} PER AI SQUIRREL  |  AI SQUIRREL POWER x{pack}"
+                message = (f"LEVEL {level}  |  YOU LEAD {pack} VIPER{plural} PER AI MONGOOSE  |  AI MONGOOSE POWER x{pack}"
                            f"  |  YOUR VIPER +10% (HUMAN vs AI)")
             elif game_mode == 3:
-                message = f"LEVEL {level}  |  {pack} VIPER{plural} PER SQUIRREL  |  SQUIRREL POWER x{pack}  |  PLAYER vs PLAYER: EQUAL"
+                message = f"LEVEL {level}  |  {pack} VIPER{plural} PER MONGOOSE  |  MONGOOSE POWER x{pack}  |  PLAYER vs PLAYER: EQUAL"
             else:
-                message = (f"LEVEL {level}  |  {pack} VIPER{plural} PER SQUIRREL  |  SQUIRREL POWER x{pack}"
-                           f"  |  YOUR SQUIRREL +10% (HUMAN vs AI)")
+                message = (f"LEVEL {level}  |  {pack} VIPER{plural} PER MONGOOSE  |  MONGOOSE POWER x{pack}"
+                           f"  |  YOUR MONGOOSE +10% (HUMAN vs AI)")
         show_banner(message)
 
     def reset_game(level):
@@ -1035,7 +1279,7 @@ async def main():
         game_over = False
 
     def spawn_wave():
-        """A full pack for every squirrel. The squirrel's power multiplier matches the pack size.
+        """A full pack for every mongoose. The mongoose's power multiplier matches the pack size.
         Human-steered pack leaders: P2 in mode 3 (equal), P1 in mode 4, P1 + P2 in mode 5 (+10% vs AI)."""
         level = level_state["level"]
         pack = pack_size(level, len(players))
@@ -1083,11 +1327,11 @@ async def main():
         # Viper modes: every AI squirrel beaten -> viper team scores and moves up a level
         viper_team["score"] += 500 * level_state["level"]
         start_level(level_state["level"] + 1,
-                    f"VIPERS WIN!  AI SQUIRREL{'S' if len(players) > 1 else ''} DEFEATED  |  NEXT: LEVEL {level_state['level'] + 1}")
+                    f"VIPERS WIN!  AI MONGOOSE{'S' if len(players) > 1 else ''} DEFEATED  |  NEXT: LEVEL {level_state['level'] + 1}")
 
     def squirrel_ai(p):
-        """AI squirrel (Viper modes): keeps a safe distance, circles, dodges venom, grabs gems,
-        and shoots / uses Nova with the same weapons and fire rate as a human squirrel."""
+        """AI mongoose (Viper modes): keeps a safe distance, circles, dodges venom, grabs gems,
+        and shoots / uses Nova with the same weapons and fire rate as a human mongoose."""
         p.update()
         live = [v for v in vipers if v.hp > 0]
         if not live:
@@ -1134,7 +1378,7 @@ async def main():
             squirrel_shot(p, t.x, t.y)
 
     def squirrel_shot(p, tx, ty):
-        """A squirrel with xN power fires N laser beams in a fan - the same ammo as N vipers,
+        """A mongoose with xN power fires N laser beams in a fan - the same ammo as N vipers,
         each beam hitting as hard as one viper's spit (so total damage stays equal)."""
         if p.try_shot():
             color = (0, 255, 230) if p.player_id == 1 else (100, 220, 255)
@@ -1149,7 +1393,7 @@ async def main():
             attack_sound("sq1_shot" if p.player_id == 1 else "sq2_shot")
 
     def squirrel_nova(p):
-        """Nova ring: 15 shots per power level (x3 squirrel = 45-shot ring), like N vipers bursting."""
+        """Nova ring: 15 shots per power level (x3 mongoose = 45-shot ring), like N vipers bursting."""
         if p.try_special():
             color = (0, 255, 230) if p.player_id == 1 else (100, 220, 255)
             count = 15 * max(1, p.power_mult)
@@ -1161,7 +1405,15 @@ async def main():
             attack_sound("sq1_nova" if p.player_id == 1 else "sq2_nova")
 
     def viper_spit(v, tx, ty):
-        if v.try_shot():
+        """Spit venom, or, with a mongoose within STRIKE_RANGE, strike it with the head instead."""
+        if v.strike_t > 0:
+            return
+        near = [p for p in players if p.hp > 0 and math.hypot(p.x - v.x, p.y - v.y) < STRIKE_RANGE]
+        if near and v.try_shot():
+            t = min(near, key=lambda p: math.hypot(p.x - v.x, p.y - v.y))
+            v.start_strike(t.x, t.y)
+            attack_sound("vp_bite")
+        elif v.try_shot():
             projectiles.append(Projectile(v.x, v.y, tx, ty, damage=v.power(), color=(255, 60, 100), is_hostile=True, owner=v))
             attack_sound("vp_spit")
 
@@ -1193,7 +1445,7 @@ async def main():
         bursts.append(BurstFlash(viper.x, viper.y))
         if game_mode == 3:
             if not vipers:
-                after_burst["action"] = lambda: pvp_round_over("squirrel")      # whole pack beaten
+                after_burst["action"] = lambda: pvp_round_over("mongoose")      # whole pack beaten
             else:
                 promote_pvp_leader()
             return
@@ -1241,14 +1493,14 @@ async def main():
     font_help = pygame.font.SysFont("consolas", 14, bold=True)
 
     HELP_CONTROLS = [
-        ("PLAYER 1  (squirrel in modes 1-3, lead viper in 4-5)", None),
+        ("PLAYER 1  (mongoose in modes 1-3, lead viper in 4-5)", None),
         ("W A S D", "move"),
         ("SPACE / LEFT CLICK", "shoot / spit (aim with mouse, HOLD to fire)"),
         ("E / RIGHT CLICK", "special: Nova ring / venom burst"),
-        ("PLAYER 2  (squirrel 2 in mode 2, viper in modes 3 and 5)", None),
+        ("PLAYER 2  (mongoose 2 in mode 2, viper in modes 3 and 5)", None),
         ("ARROW KEYS", "move (a viper player steers the lead viper)"),
-        ("ENTER / RIGHT CTRL", "squirrel blaster  /  viper venom spit"),
-        ("RIGHT SHIFT", "squirrel Nova  /  viper venom burst"),
+        ("ENTER / RIGHT CTRL", "mongoose blaster  /  viper venom spit"),
+        ("RIGHT SHIFT", "mongoose Nova  /  viper venom burst"),
         ("GAME CONTROLLER  (pad 1 = Player 1, pad 2 = Player 2)", None),
         ("LEFT STICK / D-PAD", "move"),
         ("A / X", "shoot, hold to keep firing (right stick aims)"),
@@ -1263,14 +1515,14 @@ async def main():
     ]
     HELP_RULES = [
         "5 MODES  (press T)",
-        "1 Squirrel vs AI       2 Two squirrels vs AI",
-        "3 Squirrel vs Viper (player vs player)",
-        "4 Viper vs AI squirrel 5 Two vipers vs AI squirrels",
+        "1 Mongoose vs AI       2 Two mongooses vs AI",
+        "3 Mongoose vs Viper (player vs player)",
+        "4 Viper vs AI mongoose 5 Two vipers vs AI mongooses",
         "",
         "FAIR POWER",
         "- Same level stats and same growth for both sides.",
-        "- Packs: 1 viper per squirrel at levels 1-5, +1 every",
-        "  5 levels (max 10). Squirrel gets power x pack size:",
+        "- Packs: 1 viper per mongoose at levels 1-5, +1 every",
+        "  5 levels (max 10). Mongoose gets power x pack size:",
         "  more HP / DEF, more lasers, a bigger Nova ring.",
         "- HUMAN vs AI (modes 1, 2, 4, 5): the human player",
         "  gets +10% health, defense, attack and speed.",
@@ -1278,7 +1530,7 @@ async def main():
         "",
         "PLAYING",
         "- Kill 5 vipers = next level. Beat a whole pack, or",
-        "  the AI squirrel(s) = everyone refills, next pack.",
+        "  the AI mongoose(s) = everyone refills, next pack.",
         "- Touching hurts both. Green gems: +25% attack 10s.",
         "- If your viper falls, you take over the next one.",
         "",
@@ -1346,7 +1598,7 @@ async def main():
         return r.inflate(4, 26) if MOBILE else r
 
     def touch_aim(unit, enemies):
-        """FIRE button aims at the nearest enemy in AI modes, straight ahead in Squirrel vs Viper."""
+        """FIRE button aims at the nearest enemy in AI modes, straight ahead in Mongoose vs Viper."""
         alive = [e for e in enemies if e.hp > 0]
         if game_mode != 3 and alive:
             e = min(alive, key=lambda e: math.hypot(e.x - unit.x, e.y - unit.y))
@@ -1355,7 +1607,7 @@ async def main():
         return unit.x + math.cos(ang) * 200, unit.y + math.sin(ang) * 200
 
     def p1_unit():
-        """What player 1 is playing: the squirrel, or (Viper modes) their lead viper."""
+        """What player 1 is playing: the mongoose, or (Viper modes) their lead viper."""
         return viper_for(1) if game_mode in (4, 5) else players[0]
 
     def p1_attack(tx, ty):
@@ -1588,7 +1840,7 @@ async def main():
                     j = pygame.joystick.Joystick(event.device_index)
                     j.init()
                     pads[j.get_instance_id()] = j
-                    role = {"p1": "SQUIRREL P1", "p2": "SQUIRREL P2", "viper1": "PLAYER 1's VIPER",
+                    role = {"p1": "MONGOOSE P1", "p2": "MONGOOSE P2", "viper1": "PLAYER 1's VIPER",
                             "viper": "PLAYER 2's VIPER"}.get(pad_role(j), "nobody in this mode")
                     show_banner(f"GAME CONTROLLER {len(pads)} CONNECTED  ->  controls {role}")
                 except Exception:
@@ -1723,7 +1975,7 @@ async def main():
                         if isinstance(f, SquirrelPlayer):
                             f.score += 100
                             update_high_score(f.score)
-                            who = f"SQUIRREL P{f.player_id}"
+                            who = f"MONGOOSE P{f.player_id}"
                         else:
                             who = "VIPER"
                         show_banner(f"{who} POWER UP!  ATK {f.attack_power} -> {f.power()} for 10s")
@@ -1790,6 +2042,22 @@ async def main():
                         for _ in range(6):
                             particles.append(Particle(ply.x, ply.y, (255, 80, 120)))
                         break
+
+            # Head strikes: the extended head bites a mongoose once per strike (same damage as a spit)
+            for viper in vipers:
+                if viper.strike_can_hit():
+                    hx, hy = viper.strike_tip()
+                    for ply in players:
+                        # the head moves ~55 px a frame, so test the whole neck line, not just the tip
+                        sx, sy = hx - viper.x, hy - viper.y
+                        k = max(0.0, min(1.0, ((ply.x - viper.x) * sx + (ply.y - viper.y) * sy) / (sx * sx + sy * sy or 1.0)))
+                        if ply.hp > 0 and math.hypot(viper.x + sx * k - ply.x, viper.y + sy * k - ply.y) < STRIKE_HIT_RADIUS:
+                            ply.take_damage(viper.power())
+                            viper.strike_hit = True
+                            shake_intensity = max(shake_intensity, 8)
+                            for _ in range(8):
+                                particles.append(Particle(hx, hy, (255, 60, 90)))
+                            break
 
             # Body contact: BOTH sides take a hit (fair clash)
             for viper in vipers:
@@ -1873,7 +2141,7 @@ async def main():
 
         edge_tag = lambda u: " +10%" if getattr(u, "human_edge", False) else ""
         for i, p in enumerate(players):
-            who = "AI SQUIRREL" if p.is_ai else f"SQUIRREL P{p.player_id}"
+            who = "AI MONGOOSE" if p.is_ai else f"MONGOOSE P{p.player_id}"
             draw_panel(25, 20 + i * 60, f"{who} x{p.power_mult}{edge_tag(p)}", p, (255, 110, 60) if p.player_id == 1 else (90, 170, 255))
         shown = sorted(vipers, key=lambda v: (not v.is_player_controlled, v.controller or 9))[:2]
         for i, v in enumerate(shown):
@@ -1886,9 +2154,9 @@ async def main():
         top = font_hud.render(f"LEVEL {current_level}  |  MODE {game_mode}: {MODE_NAMES[game_mode]}  [T: SWITCH]", True, (255, 205, 50))
         canvas.blit(top, top.get_rect(center=(WIDTH // 2, 22)))
         if game_mode == 3:
-            sc = font_hud.render(f"ROUNDS  SQUIRREL {pvp_wins['squirrel']} - {pvp_wins['viper']} VIPER", True, (230, 230, 230))
+            sc = font_hud.render(f"ROUNDS  MONGOOSE {pvp_wins['mongoose']} - {pvp_wins['viper']} VIPER", True, (230, 230, 230))
         elif game_mode in (4, 5):
-            sc = font_hud.render(f"VIPER TEAM SCORE {viper_team['score']}   |   BEAT THE AI SQUIRREL{'S' if len(players) > 1 else ''} TO LEVEL UP", True, (230, 230, 230))
+            sc = font_hud.render(f"VIPER TEAM SCORE {viper_team['score']}   |   BEAT THE AI MONGOOSE{'S' if len(players) > 1 else ''} TO LEVEL UP", True, (230, 230, 230))
         else:
             sc = font_hud.render(f"SCORE {players[0].score}   HI {high_score}   KILLS TO NEXT LEVEL {5 - level_state['kills'] % 5}", True, (230, 230, 230))
         canvas.blit(sc, sc.get_rect(center=(WIDTH // 2, 42)))
@@ -1896,7 +2164,7 @@ async def main():
         # Power comparison at this level: level growth is equal; humans vs AI get +10%
         s_now = level_stats(current_level)
         pack_now = pack_size(current_level, len(players))
-        pw = font_hud.render(f"VIPERS: {len(vipers)}   |   PACK: {pack_now} VIPER{'S' if pack_now > 1 else ''} PER SQUIRREL   |   SQUIRREL POWER x{pack_now}",
+        pw = font_hud.render(f"VIPERS: {len(vipers)}   |   PACK: {pack_now} VIPER{'S' if pack_now > 1 else ''} PER MONGOOSE   |   MONGOOSE POWER x{pack_now}",
                              True, (80, 255, 120))
         canvas.blit(pw, pw.get_rect(center=(WIDTH // 2, 62)))
         e = HUMAN_EDGE
@@ -1904,15 +2172,15 @@ async def main():
         vp_hp, vp_def, vp_atk = s_now["max_hp"], s_now["max_defense"], s_now["attack_power"]
         if game_mode in (1, 2):
             txt2 = (f"AI VIPER: HP {vp_hp} DEF {vp_def} ATK {vp_atk}      |      "
-                    f"YOUR SQUIRREL x{pack_now} +10%: HP {int(sq_hp * e + 0.5)} DEF {int(sq_def * e + 0.5)} ATK {int(sq_atk * e + 0.5)}")
-            txt3, col3 = "HUMAN vs AI: YOUR SQUIRREL HAS +10% HEALTH, DEFENSE, ATTACK AND SPEED", (255, 170, 60)
+                    f"YOUR MONGOOSE x{pack_now} +10%: HP {int(sq_hp * e + 0.5)} DEF {int(sq_def * e + 0.5)} ATK {int(sq_atk * e + 0.5)}")
+            txt3, col3 = "HUMAN vs AI: YOUR MONGOOSE HAS +10% HEALTH, DEFENSE, ATTACK AND SPEED", (255, 170, 60)
         elif game_mode in (4, 5):
             txt2 = (f"YOUR VIPER +10%: HP {int(vp_hp * e + 0.5)} DEF {int(vp_def * e + 0.5)} ATK {int(vp_atk * e + 0.5)}      |      "
-                    f"AI SQUIRREL x{pack_now}: HP {sq_hp} DEF {sq_def} ATK {sq_atk}")
+                    f"AI MONGOOSE x{pack_now}: HP {sq_hp} DEF {sq_def} ATK {sq_atk}")
             txt3, col3 = "HUMAN vs AI: YOUR VIPER HAS +10% HEALTH, DEFENSE, ATTACK AND SPEED (AI HELPER VIPERS 100%)", (255, 170, 60)
         else:
             txt2 = (f"EACH VIPER: HP {vp_hp}  DEF {vp_def}  ATK {vp_atk}      =      "
-                    f"SQUIRREL x{pack_now}: HP {sq_hp}  DEF {sq_def}  ATK {sq_atk}")
+                    f"MONGOOSE x{pack_now}: HP {sq_hp}  DEF {sq_def}  ATK {sq_atk}")
             txt3, col3 = "PLAYER vs PLAYER: EQUAL POWER FOR BOTH SIDES", (150, 220, 255)
         pw2 = font_hud_sm.render(txt2, True, (170, 255, 190))
         canvas.blit(pw2, pw2.get_rect(center=(WIDTH // 2, 80)))
@@ -1929,7 +2197,7 @@ async def main():
         controls = {
             1: "[P1: WASD move, SPACE/L-CLICK shoot, E/R-CLICK nova] [M: MUTE] [R: RESET] [T: MODE] [H: HELP]",
             2: "[P1: WASD+SPACE+E] [P2: ARROWS move, ENTER shoot, R-SHIFT nova] [M: MUTE] [T: MODE] [H: HELP]",
-            3: "[SQUIRREL: WASD+SPACE+E] [VIPER: ARROWS move, ENTER/R-CTRL spit, R-SHIFT burst] [M: MUTE] [T: MODE] [H: HELP]",
+            3: "[MONGOOSE: WASD+SPACE+E] [VIPER: ARROWS move, ENTER/R-CTRL spit, R-SHIFT burst] [M: MUTE] [T: MODE] [H: HELP]",
             4: "[YOUR VIPER: WASD move, SPACE/L-CLICK spit, E/R-CLICK venom burst] [M: MUTE] [R: RESET] [T: MODE] [H: HELP]",
             5: "[P1 VIPER: WASD+SPACE+E] [P2 VIPER: ARROWS move, ENTER spit, R-SHIFT burst] [M: MUTE] [T: MODE] [H: HELP]",
         }[game_mode]
