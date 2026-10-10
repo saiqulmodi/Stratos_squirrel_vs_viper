@@ -114,3 +114,23 @@ def test_taking_over_a_viper_mid_fight_grants_the_edge_once():
 def test_five_modes_exist():
     assert list(g.MODE_NAMES) == [1, 2, 3, 4, 5]
     assert g.VS_AI_MODES == (1, 2, 4, 5)
+
+
+def test_mongoose_runs_ten_times_the_shared_speed():
+    """User, 2026-10-10: the mongoose is swift - 10x the shared fighter speed."""
+    m = g.SquirrelPlayer(400, 300, level=1)
+    m.move(1, 0)
+    assert m.x - 400 == pytest.approx(g.fighter_speed(1) * 10)
+
+
+def test_mongoose_leap_lifts_off_and_lands():
+    m = g.SquirrelPlayer(400, 300, level=1)
+    m.aim_angle = 0.0
+    assert m.start_jump()
+    assert m.airborne() and not m.start_jump()            # no double leap
+    peak = 0.0
+    while m.airborne():
+        m.update()
+        peak = max(peak, m.lift())
+    assert peak > g.JUMP_HEIGHT * 0.9
+    assert m.lift() == 0.0 and m.x - 400 == pytest.approx(g.JUMP_MIN)

@@ -660,6 +660,16 @@ BITE_REACH = 40.0         # jaws are this far ahead of the mongoose's centre (sh
 BITE_RADIUS = 40          # bite hits a viper head this close (full damage), body/tail at 3/4 of it (half)
 FURY_RADIUS = 130         # Fury: every viper this close gets bitten
 FURY_FRAMES = 30          # dust cloud time
+
+# Swift mongoose (user, 2026-10-10: "ten times more than current speed", "jump, escape swiftly and come back";
+# the cobra can still strike a leaping mongoose from above; venom drops and body contact pass under it)
+MONGOOSE_SPEED_MULT = 10.0   # the mongoose runs 10x the shared fighter speed (fighter_speed() stays shared with the cobra)
+MONGOOSE_AI_CIRCLE = 0.2     # an AI mongoose darts in and out at full speed but circles the cobra slower, so it can be followed
+JUMP_FRAMES = 18             # a leap lasts 0.3 s
+JUMP_HEIGHT = 46.0           # how high it springs (px)
+JUMP_MIN = 180.0             # shortest leap (px); a leap toward a cobra is stretched to land 110 px past its head
+JUMP_COOLDOWN = 36           # frames before it can leap again
+PAD_JUMP = 3                 # Y on a game controller (mongoose only; a viper player keeps Y as venom spray)
 HOLE_COUNT = 16           # snake holes in the ground; vipers come out of them
 HOLES = make_holes()
 
@@ -814,6 +824,9 @@ class SquirrelPlayer(Fighter):
         self.bite_ang = 0.0
         self.bite_done = True       # one bite per leap
         self.fury_t = 0             # frames left of the Fury dust cloud
+        self.jump_t = 0             # frames left in a leap over a snake (airborne: strikes, venom and contact miss)
+        self.jump_v = (0.0, 0.0)
+        self.jump_cd = 0
         self.ai_t = random.uniform(0, 6)
         self.ai_fire_wait = random.randint(20, 50)
         self.apply_level_up(level)
@@ -833,8 +846,12 @@ class SquirrelPlayer(Fighter):
         if dx or dy:
             # Last direction moved: used to aim controller shots when the right stick is idle
             self.aim_angle = math.atan2(dy, dx)
-        self.x = max(50, min(WIDTH - 50, self.x + dx * self.speed))
-        self.y = max(50, min(HEIGHT - 50, self.y + dy * self.speed))
+            self.anim_t += 0.25                       # legs flicker at a sprint
+        if self.jump_t > 0:                           # in the air: the leap carries it
+            return
+        run = self.speed * MONGOOSE_SPEED_MULT        # swift: 10x the shared fighter speed
+        self.x = max(50, min(WIDTH - 50, self.x + dx * run))
+        self.y = max(50, min(HEIGHT - 50, self.y + dy * run))
 
     def update(self):
         self.anim_t += 0.15
@@ -846,6 +863,46 @@ class SquirrelPlayer(Fighter):
         if self.fury_t > 0:
             self.fury_t -= 1
             self.anim_t += 0.3
+        if self.jump_cd > 0:
+            self.jump_cd -= 1
+        if self.jump_t > 0:
+            self.jump_t -= 1
+            self.x = max(50, min(WIDTH - 50, self.x + self.jump_v[0]))
+            self.y = max(50, min(HEIGHT - 50, self.y + self.jump_v[1]))
+
+    def airborne(self):
+        return self.jump_t > 0
+
+    def lift(self):
+        """Height above the ground right now (px)."""
+        if self.jump_t <= 0:
+            return 0.0
+        return JUMP_HEIGHT * math.sin(math.pi * (JUMP_FRAMES - self.jump_t + 0.5) / JUMP_FRAMES)
+
+    def start_jump(self, snakes=()):
+        """Leap in the direction it is heading, to escape a strike and dart back in. If a cobra's head lies ahead
+        (within 60 degrees, 320 px) the leap is stretched to land 110 px past it, over the snake - risky,
+        because a hooded cobra can still strike a mongoose in the air from above."""
+        if self.hp <= 0 or self.jump_t > 0 or self.lunge_t > 0 or self.jump_cd > 0:
+            return False
+        ang = self.aim_angle
+        dist = JUMP_MIN
+        for v in snakes:
+            if getattr(v, "hp", 1) <= 0:
+                continue
+            d = math.hypot(v.x - self.x, v.y - self.y)
+            off = abs((math.atan2(v.y - self.y, v.x - self.x) - ang + math.pi) % math.tau - math.pi)
+            if d < 320 and off < math.pi / 3:
+                ang = math.atan2(v.y - self.y, v.x - self.x)
+                dist = max(dist, d + 110)
+                break
+        c, s = math.cos(ang), math.sin(ang)
+        if abs(c) > 0.15:
+            self.facing_right = c > 0
+        self.jump_v = (c * dist / JUMP_FRAMES, s * dist / JUMP_FRAMES)
+        self.jump_t = JUMP_FRAMES
+        self.jump_cd = JUMP_FRAMES + JUMP_COOLDOWN
+        return True
 
     def start_bite(self, tx, ty):
         """Leap BITE_LUNGE px toward the target with the jaws open."""
@@ -866,7 +923,8 @@ class SquirrelPlayer(Fighter):
         bigger than the old mongoose; the hit size (HIT_RADIUS) is unchanged so balance stays the same."""
         S = getattr(self, "scale", MONGOOSE_SCALE)
         f = 1 if self.facing_right else -1
-        ox, oy = self.x, self.y
+        lift = self.lift() if hasattr(self, "jump_t") else 0.0
+        ox, oy = self.x, self.y - lift                       # in a leap the body rises; the shadow stays on the ground
         fur, dark, light, tip = MONGOOSE_COLORS.get(self.player_id, MONGOOSE_COLORS[1])
         outline = (22, 18, 14)
 
@@ -892,10 +950,15 @@ class SquirrelPlayer(Fighter):
         fluff += (getattr(self, "fluff_target", 0.0) - fluff) * 0.12      # fur bristles up when a snake is near
         self.fluff = fluff
         puff = 1.0 + 0.35 * fluff
-        last = getattr(self, "_last_xy", (ox, oy))
-        moving = math.hypot(ox - last[0], oy - last[1]) > 0.3
-        self._last_xy = (ox, oy)
-        stride = math.sin(self.anim_t * 2.4) if moving else 0.0
+        last = getattr(self, "_last_xy", (self.x, self.y))
+        moved = math.hypot(self.x - last[0], self.y - last[1])
+        moving = moved > 0.3
+        self._last_xy = (self.x, self.y)
+        stride = math.sin(self.anim_t * 2.4) if moving and lift == 0 else 0.0
+        if moved > 12 and lift == 0:                                # sprinting: a streak of kicked-up dust behind it
+            for k in range(1, 6):
+                px, py = last[0] + (self.x - last[0]) * k / 6, last[1] + (self.y - last[1]) * k / 6
+                pygame.draw.circle(surface, (150, 126, 90), (int(px), int(py + 12 * S)), max(1, int((1 + k * 0.5) * S)))
         wave = math.sin(self.anim_t * 1.3)
         jaw = 7 if self.lunge_t > 0 or self.fury_t > 0 else 2     # jaws wide open while biting
         if self.fury_t > 0:                                         # Fury: dust kicked up all around
@@ -910,22 +973,27 @@ class SquirrelPlayer(Fighter):
         G, HG = MONGOOSE_GIRTH, MONGOOSE_HEAD
         B = 15 * G                                                  # half the body's depth
         yt = B * 0.5                                                # where the legs join the body
-        oval((34, 26, 17), -6, yt + 13, 150, 4)                     # shadow on the ground
+        shadow = pygame.Rect(0, 0, int(150 * S * (1 - lift / (JUMP_HEIGHT * 2.5))), max(2, int(4 * S)))
+        shadow.center = (int(ox + (-6 - MONGOOSE_ORIGIN) * S * f), int(self.y + (yt + 13) * S))
+        pygame.draw.ellipse(surface, (34, 26, 17), shadow)            # shadow on the ground (stays down in a leap)
 
         # Tail: long and tapering, fur puffed up the way a mongoose fluffs it against a snake
-        tail = _chain([(-38, -0.5), (-50, wave * 1.0), (-62, 1.5 + wave * 2.0), (-74, 1 + wave * 3.0), (-84, -0.5 + wave * 3.5)],
-                      B * 0.25 * puff, B * 0.12 * puff, step=3)         # tail 1/4 of the body's width (user)
-        for (lx, ly), r in tail:
-            circ(outline, lx, ly, r + 0.6)
-        for k, ((lx, ly), r) in enumerate(tail):
-            circ(tip if k > len(tail) * 0.72 else fur, lx, ly, r)
-        for k in (range(0, len(tail) - 2, 4) if fluff > 0.2 else ()):     # tail hairs only when it bristles
-            (lx, ly), r = tail[k]
-            line(dark, (lx, ly - r), (lx - 2, ly - r - 2 * fluff), 0.6)
-            line(dark, (lx, ly + r), (lx - 2, ly + r + 1.5 * fluff), 0.6)
+        # Tail half as thin again (user, 2026-10-10: "tail is still big, thinner by 1/2"): a fine line,
+        # 2 px at the root and 1 px for the rest, dark-tipped; it straightens out behind in a leap.
+        tw = 0.3 if lift else 1.0
+        tail = [(-38, -0.5), (-50, wave * 1.0 * tw), (-62, 1.5 * tw + wave * 2.0 * tw), (-74, tw + wave * 3.0 * tw), (-84, -0.5 + wave * 3.5 * tw)]
+        pts = [at(*p) for p in tail]
+        pygame.draw.line(surface, fur, pts[0], pts[1], 2 if fluff > 0.5 or S >= 1.0 else 1)
+        pygame.draw.lines(surface, fur, False, pts[1:4], 1)
+        pygame.draw.line(surface, tip, pts[3], pts[4], 1)
+        for k in (range(1, 4) if fluff > 0.2 and detail else ()):         # a few tail hairs only when it bristles
+            hx, hy = pts[k]
+            pygame.draw.line(surface, dark, (hx, hy), (hx - int(2 * S * f), hy - int(2 * fluff * S)), 1)
 
         def leg(hx, phase, col):
             sw = stride * 7 * phase
+            if lift:                                                          # in a leap: front legs reach, hind legs kick back
+                sw = 6 if hx > 0 else -6
             knee, foot = (hx + sw * 0.4, yt + 6), (hx + sw, yt + 12)          # short legs, like a real mongoose
             line(outline, (hx, yt), knee, 2.4)                               # slim legs, never thicker than the body
             line(outline, knee, foot, 2.0)
@@ -2695,14 +2763,15 @@ async def main():
         dist = math.hypot(t.x - p.x, t.y - p.y)
         ang = math.atan2(t.y - p.y, t.x - p.x)
         mvx = mvy = 0.0
+        dart = min(1.0, abs(dist - 100) / (p.speed * MONGOOSE_SPEED_MULT))   # swift dart, without overshooting
         if dist < 70:
-            mvx, mvy = -math.cos(ang), -math.sin(ang)
+            mvx, mvy = -math.cos(ang) * dart, -math.sin(ang) * dart
         elif dist > 130:
-            mvx, mvy = math.cos(ang), math.sin(ang)
+            mvx, mvy = math.cos(ang) * dart, math.sin(ang) * dart
         p.ai_t += 0.025
         side = 1 if math.sin(p.ai_t) > 0 else -1
-        mvx += -math.sin(ang) * 0.7 * side
-        mvy += math.cos(ang) * 0.7 * side
+        mvx += -math.sin(ang) * MONGOOSE_AI_CIRCLE * side
+        mvy += math.cos(ang) * MONGOOSE_AI_CIRCLE * side
         for pr in projectiles:
             if pr.is_hostile:
                 d = math.hypot(pr.x - p.x, pr.y - p.y)
@@ -2725,6 +2794,13 @@ async def main():
             mvx, mvy = mvx / m, mvy / m
         p.move(mvx, mvy)
         p.aim_angle = ang
+        for v in live:                                   # a cobra rears up at it: usually it leaps away to escape
+            if (v.strike_t == STRIKE_FRAMES - 4 and math.hypot(v.x - p.x, v.y - p.y) < STRIKE_RANGE + 40
+                    and random.random() < 0.75):
+                away = math.atan2(p.y - v.y, p.x - v.x) + random.uniform(-0.6, 0.6)
+                p.aim_angle = away                       # leaps clear of the strike, then darts straight back in
+                p.start_jump()
+                break
         p.ai_fire_wait -= 1
         if viper_part_near(t, p.x, p.y, FURY_RADIUS) == "head" and p.special_timer <= 0:
             squirrel_nova(p)
@@ -2862,17 +2938,17 @@ async def main():
 
     HELP_CONTROLS = [
         ("PLAYER 1  (mongoose in modes 1-3, lead viper in 4-5)", None),
-        ("W A S D", "move"),
+        ("W A S D  /  SHIFT or Q", "move (the mongoose is swift)  /  mongoose leaps over the snake"),
         ("SPACE / LEFT CLICK", "bite / strike or spit (aim with mouse, HOLD to keep going)"),
         ("E / RIGHT CLICK", "special: Fury of bites / venom spray"),
         ("PLAYER 2  (mongoose 2 in mode 2, viper in modes 3 and 5)", None),
-        ("ARROW KEYS", "move (a viper player steers the lead viper)"),
+        ("ARROW KEYS  /  /", "move (a viper player steers the lead viper)  /  mongoose 2 leaps"),
         ("ENTER / RIGHT CTRL", "mongoose bite  /  viper strike or spit"),
         ("RIGHT SHIFT", "mongoose Fury  /  viper venom spray"),
         ("GAME CONTROLLER  (pad 1 = Player 1, pad 2 = Player 2)", None),
         ("LEFT STICK / D-PAD", "move"),
         ("A / X", "bite / strike, hold to keep going (right stick aims)"),
-        ("B / Y / LB / RB", "special: Fury / venom spray"),
+        ("B / LB / RB  (Y)", "special: Fury / venom spray  (Y: mongoose leaps; viper: spray)"),
         ("START", "start the game / show this screen"),
         ("GAME", None),
         ("T  R  M  H", "5 modes / restart / mute / this screen"),
@@ -2953,10 +3029,12 @@ async def main():
         TOUCH_STICK_C, TOUCH_STICK_R = (190, HEIGHT - 235), 125
         TOUCH_FIRE_C, TOUCH_FIRE_R = (WIDTH - 175, HEIGHT - 250), 105
         TOUCH_NOVA_C, TOUCH_NOVA_R = (WIDTH - 395, HEIGHT - 165), 70
+        TOUCH_JUMP_C, TOUCH_JUMP_R = (WIDTH - 175, HEIGHT - 445), 62
     else:
         TOUCH_STICK_C, TOUCH_STICK_R = (170, HEIGHT - 200), 95
         TOUCH_FIRE_C, TOUCH_FIRE_R = (WIDTH - 150, HEIGHT - 210), 72
         TOUCH_NOVA_C, TOUCH_NOVA_R = (WIDTH - 300, HEIGHT - 150), 50
+        TOUCH_JUMP_C, TOUCH_JUMP_R = (WIDTH - 150, HEIGHT - 345), 44
     font_touch_big = pygame.font.SysFont("arial", 34 if MOBILE else 22, bold=True)
     font_touch_small = pygame.font.SysFont("arial", 18 if MOBILE else 13, bold=True)
     TOUCH_MODE_BTN = pygame.Rect(level_buttons[-1][1].right + 10, HEIGHT - 66, 70, 22)
@@ -3020,8 +3098,13 @@ async def main():
         if p1.special_timer > 0:
             pygame.draw.arc(ui, (170, 210, 110, 255), pygame.Rect(TOUCH_NOVA_C[0] - TOUCH_NOVA_R, TOUCH_NOVA_C[1] - TOUCH_NOVA_R, TOUCH_NOVA_R * 2, TOUCH_NOVA_R * 2),
                             math.pi / 2, math.pi / 2 + ready * 2 * math.pi, 7)
+        buttons = [("BITE", "hold", TOUCH_FIRE_C), ("FURY", "tap" if p1.special_timer == 0 else "charging", TOUCH_NOVA_C)]
+        if game_mode not in (4, 5):                                   # JUMP: leap over the snake (mongoose modes)
+            pygame.draw.circle(ui, (150, 120, 60, 235), TOUCH_JUMP_C, TOUCH_JUMP_R)
+            pygame.draw.circle(ui, (255, 255, 255, 255), TOUCH_JUMP_C, TOUCH_JUMP_R, 4)
+            buttons.append(("JUMP", "over snake", TOUCH_JUMP_C))
         canvas.blit(ui, (0, 0))
-        for text, sub, center in (("BITE", "hold", TOUCH_FIRE_C), ("FURY", "tap" if p1.special_timer == 0 else "charging", TOUCH_NOVA_C)):
+        for text, sub, center in buttons:
             t = font_touch_big.render(text, True, (255, 255, 255))
             canvas.blit(t, t.get_rect(center=(center[0], center[1] - 6)))
             s = font_touch_small.render(sub, True, (255, 235, 235))
@@ -3090,6 +3173,8 @@ async def main():
                     reset_game(current_level)
                 elif math.hypot(tx - TOUCH_NOVA_C[0], ty - TOUCH_NOVA_C[1]) < TOUCH_NOVA_R * 1.3:
                     p1_special()
+                elif game_mode not in (4, 5) and math.hypot(tx - TOUCH_JUMP_C[0], ty - TOUCH_JUMP_C[1]) < TOUCH_JUMP_R * 1.3:
+                    players[0].start_jump(vipers)
                 elif tx < WIDTH / 2:
                     touch["stick_id"] = fid
                     touch["origin"] = (tx, ty)
@@ -3179,6 +3264,12 @@ async def main():
                     if v:
                         viper_burst(v)
 
+                # Mongoose leap over the snake: P1 LEFT SHIFT or Q, P2 (mode 2) "/"
+                elif game_mode not in (4, 5) and event.key in (pygame.K_LSHIFT, pygame.K_q):
+                    players[0].start_jump(vipers)
+                elif game_mode == 2 and event.key == pygame.K_SLASH and len(players) > 1:
+                    players[1].start_jump(vipers)
+
                 # Player 1 (squirrel, or their viper in modes 4 / 5)
                 elif event.key == pygame.K_SPACE:
                     mx, my = pygame.mouse.get_pos()
@@ -3239,6 +3330,8 @@ async def main():
                     if btn in PAD_SHOOT:
                         tx, ty = pad_aim(j, p, vipers, p.aim_angle)
                         squirrel_shot(p, tx, ty)
+                    elif btn == PAD_JUMP:
+                        p.start_jump(vipers)
                     elif btn in PAD_SPECIAL:
                         squirrel_nova(p)
                 elif role in ("viper", "viper1"):
@@ -3420,7 +3513,7 @@ async def main():
                 if not p.is_hostile:
                     continue
                 for ply in players:
-                    if ply.hp > 0 and math.hypot(p.x - ply.x, p.y - ply.y) < HIT_RADIUS:
+                    if ply.hp > 0 and not ply.airborne() and math.hypot(p.x - ply.x, p.y - ply.y) < HIT_RADIUS:
                         ply.take_damage(p.damage)
                         shake_intensity = max(shake_intensity, 6)
                         if p in projectiles:
@@ -3437,7 +3530,8 @@ async def main():
                         # the head moves ~55 px a frame, so test the whole neck line, not just the tip
                         sx, sy = hx - viper.x, hy - viper.y
                         k = max(0.0, min(1.0, ((ply.x - viper.x) * sx + (ply.y - viper.y) * sy) / (sx * sx + sy * sy or 1.0)))
-                        if ply.hp > 0 and math.hypot(viper.x + sx * k - ply.x, viper.y + sy * k - ply.y) < STRIKE_HIT_RADIUS:
+                        # a leaping mongoose is NOT safe: the hooded cobra strikes up at it (user, 2026-10-10: "hit from top")
+                        if ply.hp > 0 and math.hypot(viper.x + sx * k - ply.x, viper.y + sy * k - (ply.y - ply.lift())) < STRIKE_HIT_RADIUS:
                             ply.take_damage(viper.power())
                             viper.strike_hit = True
                             shake_intensity = max(shake_intensity, 8)
@@ -3448,7 +3542,7 @@ async def main():
             # Body contact: BOTH sides take a hit (fair clash)
             for viper in vipers:
                 for ply in players:
-                    if ply.hp > 0 and viper.contact_timer <= 0 and math.hypot(viper.x - ply.x, viper.y - ply.y) < CONTACT_RADIUS:
+                    if ply.hp > 0 and not ply.airborne() and viper.contact_timer <= 0 and math.hypot(viper.x - ply.x, viper.y - ply.y) < CONTACT_RADIUS:
                         ply.take_damage(viper.power())
                         viper.take_damage(ply.power())
                         viper.last_hit_by = ply
