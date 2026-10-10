@@ -355,49 +355,27 @@ BURST_FRAMES = 48       # ~0.8 s at 60 FPS: a beaten viper's pieces fly apart an
 BODY_HIT_RADIUS = 14    # body/tail segments are a slightly smaller target than the head (HIT_RADIUS)
 
 
-class BurstPiece:
-    """One neon piece of a beaten viper (head or a body/tail segment). Silent, cartoon, no gore."""
-    def __init__(self, x, y, radius, outer, inner, cx, cy):
-        self.x, self.y = float(x), float(y)
-        ang = math.atan2(y - cy, x - cx) + random.uniform(-0.6, 0.6) if (x, y) != (cx, cy) else random.uniform(0, math.pi * 2)
-        speed = random.uniform(2.5, 7.0)
-        self.vx, self.vy = math.cos(ang) * speed, math.sin(ang) * speed
-        self.radius = radius
-        self.outer, self.inner = outer, inner
-        self.life = BURST_FRAMES
-        self.spin = random.uniform(0, math.pi * 2)
-        self.spin_speed = random.uniform(-0.35, 0.35)
+class DeadSnake:
+    """A beaten viper lies still and fades away over BURST_FRAMES (user, 2026-10-10: natural,
+    replaces the neon pieces and flash). Game flow still waits for it, exactly as before."""
+    def __init__(self, viper, frames=BURST_FRAMES):
+        self.v = viper
+        viper.strike_t = 0          # jaws shut, head back
+        viper.slither_t = 0.0       # tongue in
+        viper.hole = None
+        self.life = frames
+        self.total = frames
 
     def update(self):
-        self.x += self.vx
-        self.y += self.vy
-        self.vx *= 0.94
-        self.vy *= 0.94
-        self.spin += self.spin_speed
         self.life -= 1
 
     def draw(self, surface):
         if self.life <= 0:
             return
-        r = max(1, int(self.radius * (0.4 + 0.6 * self.life / BURST_FRAMES)))
-        # a small wedge-cut disc so each piece looks like a broken shard that tumbles
-        pts = [(self.x + math.cos(self.spin + k * 2.1) * r, self.y + math.sin(self.spin + k * 2.1) * r) for k in range(3)]
-        pygame.draw.polygon(surface, self.outer, pts)
-        pygame.draw.circle(surface, self.inner, (int(self.x), int(self.y)), max(1, r // 2))
-
-
-class BurstFlash:
-    """Quick white ring at the head when a viper is beaten."""
-    def __init__(self, x, y):
-        self.x, self.y = x, y
-        self.life = 14
-
-    def update(self):
-        self.life -= 1
-
-    def draw(self, surface):
-        if self.life > 0:
-            pygame.draw.circle(surface, (255, 255, 255), (int(self.x), int(self.y)), int(18 + (14 - self.life) * 3), 3)
+        layer = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        self.v.draw(layer)
+        layer.set_alpha(int(255 * self.life / self.total))
+        surface.blit(layer, (0, 0))
 
 
 class Shard:
@@ -531,54 +509,6 @@ def make_ground():
     return g
 
 
-def make_backdrop():
-    """Faint neon mongoose and viper facing off behind the arena (user, 2026-10-09).
-    Drawn once onto a see-through surface and blitted under the grid every frame."""
-    bd = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-    mong = (255, 170, 60, 80)        # mongoose: warm amber
-    mong_fill = (255, 170, 60, 20)
-    vip = (80, 255, 140, 80)         # viper: toxic green
-    vip_fill = (80, 255, 140, 20)
-
-    # --- mongoose, left, facing right: bushy tail, long low body, raised head ---
-    blobs = _chain([(60, 600), (110, 560), (180, 535), (240, 525)], 6, 26)        # tail, thin tip to thick base
-    blobs += _chain([(240, 525), (330, 515), (420, 510)], 44, 42)                  # body
-    blobs += _chain([(420, 505), (470, 470), (510, 440)], 34, 24)                  # neck, raised
-    blobs += _chain([(510, 435), (560, 430), (600, 438)], 24, 7)                   # head to pointed snout
-    blobs += [((515, 410), 11)]                                                    # ear
-    for x0, x1 in ((270, 262), (320, 316), (395, 412), (440, 462)):                # legs
-        blobs += _chain([(x0, 540), (x1, 610)], 11, 8)
-    _glow_shape(bd, blobs, mong, mong_fill)
-    for sx in range(255, 440, 26):                                                 # fur stripes
-        pygame.draw.line(bd, (255, 170, 60, 45), (sx, 482), (sx + 12, 508), 2)
-    pygame.draw.circle(bd, (255, 230, 150, 170), (545, 425), 5)                    # eye
-    pygame.draw.circle(bd, (255, 170, 60, 160), (600, 438), 4)                     # nose
-
-    # --- viper, right, facing left: coils on the ground, neck rising, hood spread ---
-    for i, (rx, ry, r) in reversed(list(enumerate(((165, 52, 22), (125, 40, 19), (85, 28, 16))))):
-        cy = 590 - i * 24                     # bottom coil is the biggest and drawn last (in front)
-        band = pygame.Rect(0, 0, (rx + r) * 2, (ry + r) * 2)
-        band.center = (1010, cy)
-        hole = pygame.Rect(0, 0, (rx - r) * 2, (ry - r) * 2)
-        hole.center = (1010, cy)
-        pygame.draw.ellipse(bd, vip_fill, band, r * 2)
-        pygame.draw.ellipse(bd, vip, band, 3)
-        pygame.draw.ellipse(bd, vip, hole, 3)
-    coils = []
-    coils += _chain([(1010, 540), (990, 470), (950, 420), (890, 395), (835, 392)], 18, 14)   # rising neck
-    coils += _chain([(835, 385), (815, 365), (800, 360)], 26, 18)                            # hood
-    coils += _chain([(835, 400), (815, 420), (800, 422)], 26, 18)
-    coils += _chain([(805, 392), (770, 390), (745, 394)], 20, 12)                            # head
-    _glow_shape(bd, coils, vip, vip_fill)
-    pygame.draw.circle(bd, (255, 80, 80, 190), (775, 384), 5)                      # eye
-    pygame.draw.lines(bd, (255, 80, 110, 140), False, [(735, 395), (708, 398), (695, 390)], 2)  # forked tongue
-    pygame.draw.line(bd, (255, 80, 110, 140), (708, 398), (695, 407), 2)
-    for k in range(7):                                                             # scale diamonds on the coil
-        x = 870 + k * 46
-        pygame.draw.polygon(bd, (80, 255, 140, 45), [(x, 630), (x + 9, 621), (x + 18, 630), (x + 9, 639)])
-    return bd
-
-
 def level_stats(level):
     level = max(1, level)
     return {
@@ -623,6 +553,8 @@ JUNGLE_SNAKES = 4               # wild vipers roaming the jungle on their own
 JUNGLE_SNAKE_SCALE = 0.8
 JUNGLE_SPOT_RANGE = 220         # a wild mongoose and a wild snake this close spot each other and fight to the kill
 JUNGLE_RESPAWN_FRAMES = 300     # a new wild animal turns up every 5 s while the jungle is short of one
+ONLOOKER_KINDS_AT_ONCE = 3      # three kinds of other animals in the jungle at a time...
+ONLOOKER_ROTATE_FRAMES = 2400   # ...and every 40 s one kind wanders off and a different kind comes in
 VIPER_SCALE = 1.3               # fighting vipers: thick body, big head...
 VIPER_SEGMENTS = 36             # ...and a very long tail (was 24 segments)
 MONGOOSE_COLORS = {                 # fur, dark fur, belly, tail tip
@@ -1098,6 +1030,262 @@ def jungle_life(mongooses, snakes, fx, particles, rnd, clock, busy_holes):
             fx.remove(piece)
 
 
+SHADOW = (34, 26, 17)
+
+
+class _Paint:
+    """Draws in an animal's own coordinates (facing right, 1 unit = 1 px at scale 1), mirrored when facing left."""
+    def __init__(self, surface, ox, oy, f, S):
+        self.s, self.ox, self.oy, self.f, self.S = surface, ox, oy, f, S
+
+    def at(self, lx, ly):
+        return (int(self.ox + lx * self.S * self.f), int(self.oy + ly * self.S))
+
+    def circ(self, col, lx, ly, r):
+        pygame.draw.circle(self.s, col, self.at(lx, ly), max(1, int(r * self.S)))
+
+    def oval(self, col, cx, cy, w, h):
+        rect = pygame.Rect(0, 0, max(1, int(w * self.S)), max(1, int(h * self.S)))
+        rect.center = self.at(cx, cy)
+        pygame.draw.ellipse(self.s, col, rect)
+
+    def poly(self, col, pts, width=0):
+        pygame.draw.polygon(self.s, col, [self.at(*p) for p in pts], width)
+
+    def line(self, col, a, b, w):
+        pygame.draw.line(self.s, col, self.at(*a), self.at(*b), max(1, int(w * self.S)))
+
+
+def draw_peacock(P, t, moving, me):
+    step = math.sin(t * 2.4) if moving else 0.0
+    P.oval(SHADOW, -40, 24, 130, 9)
+    P.poly((28, 80, 45), [(-8, -8), (-70, -7), (-126, -1), (-128, 9), (-70, 11), (-8, 6)])           # long train
+    P.poly((62, 132, 72), [(-8, -6), (-70, -5), (-122, 1), (-122, 7), (-70, 8), (-8, 4)])
+    for k, x in enumerate((-36, -56, -76, -96, -114)):                                             # eye spots
+        y = 1 + (k % 2) * 2
+        P.oval((30, 90, 60), x, y, 11, 8)
+        P.oval((210, 175, 60), x, y, 8, 6)
+        P.oval((30, 60, 160), x, y, 4, 4)
+    for lx, ph in ((-2, 1), (5, -1)):
+        P.line((150, 140, 130), (lx, 6), (lx + step * 4 * ph, 22), 2)
+        P.line((150, 140, 130), (lx + step * 4 * ph, 22), (lx + step * 4 * ph + 4, 22), 1)
+    P.oval((15, 55, 130), 0, -2, 32, 20)
+    P.oval((22, 82, 178), 2, -4, 26, 15)
+    P.line((25, 95, 195), (10, -8), (15, -28), 7)
+    P.circ((25, 95, 195), 16, -31, 6)
+    P.poly((205, 200, 185), [(21, -33), (28, -30), (21, -28)])
+    P.circ((255, 255, 255), 18, -32, 1.8)
+    P.circ((10, 10, 10), 18.5, -32, 0.9)
+    for dx in (-3, 0, 3):                                                                           # crest
+        P.line((25, 95, 195), (15, -36), (13 + dx, -45), 1)
+        P.circ((30, 110, 210), 13 + dx, -46, 1.7)
+
+
+def draw_deer(P, t, moving, me):
+    step = math.sin(t * 2.6) if moving else 0.0
+    P.oval(SHADOW, 2, 31, 74, 8)
+    far, near = (150, 92, 46), (185, 118, 58)
+    for hx, ph, col in ((-20, -1, far), (18, 1, far), (-16, 1, near), (22, -1, near)):              # slender legs
+        knee, foot = (hx + step * 3 * ph, 17), (hx + step * 6 * ph, 30)
+        P.line(col, (hx, 4), knee, 4)
+        P.line(col, knee, foot, 3)
+        P.oval((40, 30, 20), foot[0] + 1, foot[1], 5, 3)
+    P.oval((245, 240, 230), -29, -6, 7, 10)                                                        # white tail
+    P.line((120, 70, 35), (-29, -11), (-30, -3), 2)
+    P.oval((150, 90, 45), 0, 0, 60, 26)
+    P.oval((196, 126, 62), 0, -1, 56, 22)
+    P.oval((238, 222, 190), 2, 7, 42, 9)
+    for sx, sy in ((-18, -6), (-10, -2), (-2, -7), (6, -3), (14, -6), (-14, 2), (-4, 1), (8, 2), (-22, 0), (18, -1), (0, -10), (-12, -9)):
+        P.circ((245, 240, 225), sx, sy, 1.8)                                                       # chital spots
+    P.poly((196, 126, 62), [(16, -6), (26, -30), (34, -28), (28, -2)])
+    P.oval((238, 222, 190), 31, -24, 7, 6)
+    P.oval((196, 126, 62), 36, -31, 20, 12)
+    P.poly((196, 126, 62), [(40, -36), (50, -30), (48, -26), (40, -26)])
+    P.circ((30, 22, 18), 49, -29, 2)
+    P.circ((20, 15, 10), 39, -33, 1.6)
+    P.oval((170, 105, 55), 31, -39, 6, 11)
+    if me.antlers:
+        ant = (120, 95, 65)
+        for bx in (34, 38):
+            P.line(ant, (bx, -37), (bx - 5, -58), 2)
+            P.line(ant, (bx - 2, -46), (bx + 5, -53), 2)
+            P.line(ant, (bx - 5, -58), (bx + 1, -63), 2)
+
+
+def draw_boar(P, t, moving, me):
+    step = math.sin(t * 3.0) if moving else 0.0
+    P.oval(SHADOW, 2, 24, 80, 9)
+    for hx, ph, col in ((-22, -1, (35, 28, 22)), (16, 1, (35, 28, 22)), (-14, 1, (58, 48, 40)), (24, -1, (58, 48, 40))):
+        P.line(col, (hx, 4), (hx + step * 4 * ph, 22), 7)
+        P.oval((20, 16, 12), hx + step * 4 * ph + 1, 23, 8, 4)
+    P.line((40, 32, 26), (-34, -4), (-40, 4), 2)
+    P.circ((40, 32, 26), -40, 5, 2)
+    P.oval((40, 32, 26), 0, 0, 72, 38)
+    P.oval((74, 62, 52), 0, -1, 68, 34)
+    P.oval((92, 80, 68), 0, 9, 50, 10)
+    for lx in range(-26, 20, 5):                                                                  # bristly mane
+        P.poly((38, 30, 24), [(lx, -14), (lx + 2, -21 - (lx // 5) % 2 * 2), (lx + 5, -14)])
+    head = [(24, -14), (44, -4), (48, 8), (28, 14), (20, 0)]
+    P.poly((74, 62, 52), head)
+    P.poly((40, 32, 26), head, 2)
+    P.oval((150, 120, 110), 48, 4, 8, 12)
+    P.circ((40, 30, 28), 49, 2, 1.2)
+    P.poly((242, 236, 220), [(41, 8), (48, 1), (45, 9)])                                           # tusk
+    P.circ((10, 8, 6), 34, -6, 1.8)
+    P.poly((50, 40, 32), [(26, -12), (23, -23), (32, -14)])
+
+
+def draw_lizard(P, t, moving, me):
+    step = math.sin(t * 3.0) if moving else 0.0
+    wave = math.sin(t * 1.5) * (3 if moving else 1)
+    P.oval(SHADOW, -24, 12, 140, 8)
+    tail = _chain([(-26, 2), (-50, 4 + wave), (-76, 6 - wave), (-102, 4 + wave)], 7, 1.5, step=4)
+    for (lx, ly), r in tail:
+        P.circ((60, 58, 40), lx, ly, r + 1)
+    for (lx, ly), r in tail:
+        P.circ((110, 106, 72), lx, ly, r)
+    for hx, ph in ((-18, 1), (14, -1)):                                                            # sprawled legs
+        for side, col in ((-1, (80, 78, 52)), (1, (110, 106, 72))):
+            fx = hx + step * 5 * ph * side
+            P.line(col, (hx, 3), (fx, 12), 4)
+            for c in (-2, 0, 2):
+                P.line((60, 58, 40), (fx, 12), (fx + 3, 13 + c * 0.6), 1)
+    P.oval((60, 58, 40), 0, 0, 56, 19)
+    P.oval((110, 106, 72), 0, -1, 52, 15)
+    for sx in range(-20, 20, 7):                                                                  # pale spots
+        P.circ((190, 180, 120), sx, -3 + (sx // 7) % 2 * 3, 1.8)
+    P.oval((110, 106, 72), 30, -3, 28, 11)
+    P.poly((110, 106, 72), [(36, -7), (48, -3), (36, 2)])
+    P.circ((15, 12, 8), 34, -5, 1.4)
+    if math.sin(t * 1.3) > 0.6:                                                                    # forked tongue
+        tc = (130, 60, 120)
+        P.line(tc, (48, -3), (57, -3), 1)
+        P.line(tc, (57, -3), (61, -6), 1)
+        P.line(tc, (57, -3), (61, 0), 1)
+
+
+def draw_tortoise(P, t, moving, me):
+    step = math.sin(t * 1.6) if moving else 0.0
+    P.oval(SHADOW, 0, 14, 66, 8)
+    for hx, ph in ((-18, 1), (16, -1)):
+        P.oval((95, 90, 60), hx + step * 2 * ph, 11, 10, 9)
+    P.oval((120, 112, 72), 31 + step, 3, 15, 10)                                                   # head pokes out
+    P.circ((15, 12, 8), 35 + step, 1, 1.3)
+    dome = [(math.cos(a) * 31, -math.sin(a) * 24 + 7) for a in [k * math.pi / 14 for k in range(15)]]
+    P.poly((70, 52, 28), dome)
+    inner = [(math.cos(a) * 28, -math.sin(a) * 21 + 6) for a in [k * math.pi / 14 for k in range(15)]]
+    P.poly((132, 100, 56), inner)
+    for x0, x1 in ((-20, -10), (-6, 6), (10, 20)):                                                # shell plates
+        P.poly((96, 72, 38), [(x0, 4), (x0 + 2, -9), (x1 - 2, -9), (x1, 4)], 2)
+    P.poly((96, 72, 38), [(-12, -9), (-6, -17), (6, -17), (12, -9)], 2)
+    P.line((60, 44, 24), (-31, 7), (31, 7), 3)
+
+
+def draw_hare(P, t, moving, me):
+    hop = abs(math.sin(t * 3.0)) * 8 if moving else 0.0
+    P.oval(SHADOW, 0, 15, 40, 6)
+    Q = _Paint(P.s, P.ox, P.oy - hop * P.S, P.f, P.S)
+    Q.oval((135, 105, 72), -8, 7, 20, 10)                                                          # big hind leg
+    Q.line((150, 118, 82), (10, 6), (12 + hop * 0.4, 14), 3)
+    Q.oval((150, 118, 82), 0, 0, 34, 20)
+    Q.circ((245, 245, 240), -16, -3, 4)                                                             # white tail
+    Q.circ((150, 118, 82), 16, -8, 8)
+    for ex, tilt in ((10, -2), (14, 2)):                                                            # long ears
+        Q.oval((140, 108, 75), ex + tilt, -24, 5, 17)
+        Q.oval((205, 155, 140), ex + tilt, -24, 2, 11)
+    Q.circ((20, 10, 5), 19, -9, 1.6)
+    Q.circ((200, 140, 140), 24, -7, 1.2)
+
+
+ONLOOKER_KINDS = {
+    # kind: (draw, walk speed, how many, size, rest frames)
+    "peacock": (draw_peacock, 1.0, (1, 2), 1.0, (90, 360)),
+    "deer": (draw_deer, 1.5, (2, 3), 1.0, (90, 300)),
+    "boar": (draw_boar, 1.3, (1, 2), 0.95, (60, 240)),
+    "lizard": (draw_lizard, 0.9, (1, 2), 0.9, (120, 400)),
+    "tortoise": (draw_tortoise, 0.3, (1, 2), 0.9, (200, 500)),
+    "hare": (draw_hare, 2.4, (2, 3), 1.0, (40, 200)),
+}
+
+
+class Onlooker:
+    """Another jungle animal (user, 2026-10-10): roams, rests, and while resting turns to watch
+    the fight. It never joins in and nothing can hurt it."""
+
+    def __init__(self, kind, rnd, from_edge=False):
+        self.kind, self.rnd = kind, rnd
+        self.draw_fn, self.speed, _n, self.scale, self.rest_range = ONLOOKER_KINDS[kind]
+        if from_edge:
+            self.x, self.y = rnd.choice((-60.0, WIDTH + 60.0)), rnd.uniform(160, HEIGHT - 110)
+        else:
+            self.x, self.y = rnd.uniform(80, WIDTH - 80), rnd.uniform(160, HEIGHT - 110)
+        self.facing_right = rnd.random() < 0.5
+        self.anim_t = rnd.uniform(0, 6)
+        self.rest = 0 if from_edge else rnd.randint(0, 120)
+        self.antlers = rnd.random() < 0.5
+        self.leaving = False
+        self.gone = False
+        self.moving = False
+        self.pick()
+
+    def pick(self):
+        self.tx, self.ty = self.rnd.uniform(70, WIDTH - 70), self.rnd.uniform(160, HEIGHT - 100)
+
+    def leave(self):
+        self.leaving = True
+        self.rest = 0
+        self.tx = -120.0 if self.x < WIDTH / 2 else WIDTH + 120.0
+        self.ty = self.y
+
+    def step(self, watch):
+        self.moving = False
+        if self.rest > 0:
+            self.rest -= 1
+            if watch is not None and abs(watch[0] - self.x) > 20:
+                self.facing_right = watch[0] > self.x          # watching the fight
+            return
+        dx, dy = self.tx - self.x, self.ty - self.y
+        d = math.hypot(dx, dy)
+        if d < 5:
+            if self.leaving:
+                self.gone = True
+                return
+            self.pick()
+            self.rest = self.rnd.randint(*self.rest_range)
+            return
+        self.x += dx / d * self.speed
+        self.y += dy / d * self.speed
+        if abs(dx) > 1:
+            self.facing_right = dx > 0
+        self.anim_t += 0.08 + 0.05 * self.speed
+        self.moving = True
+        if self.leaving and (self.x < -100 or self.x > WIDTH + 100):
+            self.gone = True
+
+    def draw(self, surface):
+        P = _Paint(surface, self.x, self.y, 1 if self.facing_right else -1, self.scale)
+        self.draw_fn(P, self.anim_t, self.moving, self)
+
+
+def onlooker_life(animals, kinds_now, rnd, clock, watch):
+    """Keep three kinds of onlooker animals in the jungle and swap one kind out every 40 s."""
+    clock["t"] += 1
+    if clock["t"] >= ONLOOKER_ROTATE_FRAMES:
+        clock["t"] = 0
+        old = rnd.choice(kinds_now)
+        for a in animals:
+            if a.kind == old:
+                a.leave()
+        kinds_now.remove(old)
+        new = rnd.choice([k for k in ONLOOKER_KINDS if k not in kinds_now and k != old])
+        kinds_now.append(new)
+        for _ in range(rnd.randint(*ONLOOKER_KINDS[new][2])):
+            animals.append(Onlooker(new, rnd, from_edge=True))
+    for a in animals:
+        a.step(watch)
+    animals[:] = [a for a in animals if not a.gone]
+
+
 def draw_peeking_snake(surface, hole, t, k):
     """A viper waiting in its hole: the head pokes out and the tongue flicks."""
     hx, hy = hole
@@ -1300,12 +1488,8 @@ class ViperEnemy(Fighter):
         return (pal["blotch"] if i % 2 == 0 else pal["outline"]), pal["body"]
 
     def burst_pieces(self):
-        """The viper broken into pieces: one per segment plus the head."""
-        pieces = [BurstPiece(sx, sy, r, *self.colors(i), self.x, self.y) for sx, sy, r, i in self.segment_points()]
-        pal = self.palette()
-        for _ in range(3):   # the head splits into three bigger pieces
-            pieces.append(BurstPiece(self.x, self.y, 11, pal["outline"], pal["head"], self.x, self.y))
-        return pieces
+        """What is left when the viper is beaten: its body, lying still and fading (DeadSnake)."""
+        return [DeadSnake(self)]
 
     def body_radius(self, t):
         """Real snake shape: thin neck behind a wide head, thick body, tail tapering to a point."""
@@ -1462,8 +1646,10 @@ async def main():
     wild_snakes = [JungleSnake(jungle_rnd, h) for h in jungle_rnd.sample(HOLES, JUNGLE_SNAKES)]
     wild_fx = []                       # pieces of wild snakes killed by wild mongooses
     wild_clock = {"t": 0}
+    kinds_now = jungle_rnd.sample(list(ONLOOKER_KINDS), ONLOOKER_KINDS_AT_ONCE)
+    onlookers = [Onlooker(k, jungle_rnd) for k in kinds_now for _ in range(jungle_rnd.randint(*ONLOOKER_KINDS[k][2]))]
+    onlooker_clock = {"t": 0}
     world_t = {"t": 0}
-    backdrop = make_backdrop()
     clock = pygame.time.Clock()
 
     font_hud = pygame.font.SysFont("consolas", 14, bold=True)
@@ -1838,7 +2024,8 @@ async def main():
         # 2026-09-29: the viper bursts into pieces (head + every segment); a new pack, a level-up
         # or a round change waits until the pieces have faded (see after_burst in the loop).
         bursts.extend(viper.burst_pieces())
-        bursts.append(BurstFlash(viper.x, viper.y))
+        for _ in range(6):
+            particles.append(Particle(viper.x, viper.y, (130, 25, 30)))
         if game_mode == 3:
             if not vipers and not reserve:
                 after_burst["action"] = lambda: pvp_round_over("mongoose")      # whole pack beaten
@@ -2381,7 +2568,7 @@ async def main():
                             who = "VIPER"
                         show_banner(f"{who} POWER UP!  ATK {f.attack_power} -> {f.power()} for 10s")
                         for _ in range(12):
-                            particles.append(Particle(f.x, f.y, (255, 230, 90)))
+                            particles.append(Particle(f.x, f.y, (240, 230, 205)))
                         shards.remove(s)
                         break
 
@@ -2441,7 +2628,7 @@ async def main():
                         if p in projectiles:
                             projectiles.remove(p)
                         for _ in range(5):
-                            particles.append(Particle(p.x, p.y, (80, 255, 120)))
+                            particles.append(Particle(p.x, p.y, (150, 125, 90)))
                         shake_intensity = max(shake_intensity, 3)
                         break
 
@@ -2456,7 +2643,7 @@ async def main():
                         if p in projectiles:
                             projectiles.remove(p)
                         for _ in range(6):
-                            particles.append(Particle(ply.x, ply.y, (255, 80, 120)))
+                            particles.append(Particle(ply.x, ply.y, (200, 215, 70)))
                         break
 
             # Head strikes: the extended head bites a mongoose once per strike (same damage as a spit)
@@ -2472,7 +2659,7 @@ async def main():
                             viper.strike_hit = True
                             shake_intensity = max(shake_intensity, 8)
                             for _ in range(8):
-                                particles.append(Particle(hx, hy, (255, 60, 90)))
+                                particles.append(Particle(hx, hy, (200, 40, 50)))
                             break
 
             # Body contact: BOTH sides take a hit (fair clash)
@@ -2486,7 +2673,7 @@ async def main():
                         attack_sound("vp_bite")
                         shake_intensity = max(shake_intensity, 9)
                         for _ in range(8):
-                            particles.append(Particle((ply.x + viper.x) / 2, (ply.y + viper.y) / 2, (255, 200, 80)))
+                            particles.append(Particle((ply.x + viper.x) / 2, (ply.y + viper.y) / 2, (150, 125, 90)))
                         ang = math.atan2(viper.y - ply.y, viper.x - ply.x)
                         viper.x = max(50, min(WIDTH - 50, viper.x + math.cos(ang) * 60))
                         viper.y = max(50, min(HEIGHT - 50, viper.y + math.sin(ang) * 60))
@@ -2512,12 +2699,15 @@ async def main():
         # ---------------- RENDER ----------------
         current_level = level_state["level"]
         canvas.blit(ground, (0, 0))          # all play is on the ground (user, 2026-10-10)
-        canvas.blit(backdrop, (0, 0))
         world_t["t"] += 1
         busy = [v.hole for v in vipers if v.hole]
         free_holes = [h for h in HOLES if h not in busy]
         for k in range(min(len(reserve), len(free_holes))):      # the rest of the pack, waiting in holes
             draw_peeking_snake(canvas, free_holes[k], world_t["t"], k)
+        live = [p for p in players if p.hp > 0]
+        onlooker_life(onlookers, kinds_now, jungle_rnd, onlooker_clock, (live[0].x, live[0].y) if live else None)
+        for a in sorted(onlookers, key=lambda a: a.y):            # the jungle's other animals, watching
+            a.draw(canvas)
         busy_holes = busy + [s.v.hole for s in wild_snakes if s.v.hole]
         jungle_life(jungle, wild_snakes, wild_fx, particles, jungle_rnd, wild_clock, busy_holes)
         for s in wild_snakes:                                     # wild snakes and mongooses, living on their own
@@ -2543,9 +2733,9 @@ async def main():
 
         if not game_over and not touch["on"]:
             mx, my = pygame.mouse.get_pos()
-            pygame.draw.circle(canvas, (0, 255, 230), (mx, my), 7, 1)
-            pygame.draw.line(canvas, (0, 255, 230), (mx - 10, my), (mx + 10, my), 1)
-            pygame.draw.line(canvas, (0, 255, 230), (mx, my - 10), (mx, my + 10), 1)
+            pygame.draw.circle(canvas, (235, 225, 195), (mx, my), 7, 1)
+            pygame.draw.line(canvas, (235, 225, 195), (mx - 10, my), (mx - 4, my), 1)
+            pygame.draw.line(canvas, (235, 225, 195), (mx + 4, my), (mx + 10, my), 1)
 
         # --- HUD: identical stat panels for squirrel(s) and viper(s) ---
         def draw_panel(x, y, label, unit, hp_color):
