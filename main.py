@@ -66,7 +66,7 @@ def fit_canvas_to_browser():
         body.margin = "0"
         body.padding = "0"
         body.overflow = "hidden"
-        body.backgroundColor = "#05060d"
+        body.backgroundColor = "#1c150d"
         style.position = "fixed"
         style.inset = "auto"
         style.right = "auto"
@@ -111,7 +111,7 @@ def save_stored_high_score(score):
             pass
 
 # ---------------------------------------------------------
-# 3. CLEAN MUSICAL AUDIO (16-bit PCM, no white noise)
+# 3. AUDIO (16-bit PCM): natural sounds and animal calls
 # ---------------------------------------------------------
 audio_muted = False
 SFX_RATE = 22050
@@ -221,72 +221,177 @@ def voice(name, f, t):
         return math.sin(phase) * math.exp(-t * 16)
     return math.sin(w * f) * math.exp(-t * 8)
 
-# Each game mode has its own musical scale (semitones)
-MODE_SCALES = {
-    1: [0, 2, 4, 7, 9],           # Solo vs AI: bright pentatonic
-    2: [0, 2, 4, 5, 7, 9, 11],    # Dual squirrels vs AI: major
-    3: [0, 2, 3, 5, 7, 8, 10],    # Squirrel vs Viper: minor (tense)
+# Natural sounds (user, 2026-10-10): every attack and every animal has its own real-world kind of
+# sound, synthesised here (hiss, snap, growl, calls) - no musical tones.
+def _noise(n, seed):
+    r = random.Random(seed)
+    return [r.uniform(-1.0, 1.0) for _ in range(n)]
+
+
+def _lowpass(buf, a):
+    out, y = [], 0.0
+    for x in buf:
+        y += a * (x - y)
+        out.append(y)
+    return out
+
+
+def _env(t, attack, dur, curve=2.0):
+    if t < attack:
+        return t / attack
+    return max(0.0, 1.0 - (t - attack) / max(1e-6, dur - attack)) ** curve
+
+
+def _mix(*parts):
+    """parts: (start seconds, samples, gain) -> one buffer."""
+    n = max(int(st * SFX_RATE) + len(b) for st, b, _g in parts)
+    out = [0.0] * n
+    for st, b, g in parts:
+        o = int(st * SFX_RATE)
+        for i, v in enumerate(b):
+            out[o + i] += v * g
+    return out
+
+
+def snd_hiss(dur, seed, cut=0.55, attack=0.01, curve=1.5, pulses=0):
+    n = int(SFX_RATE * dur)
+    nz = _noise(n, seed)
+    hp = [x - l for x, l in zip(nz, _lowpass(nz, cut))]
+    hp = _lowpass(hp, 0.7)
+    out = []
+    for i, v in enumerate(hp):
+        t = i / SFX_RATE
+        g = _env(t, attack, dur, curve)
+        if pulses:
+            g *= 0.45 + 0.55 * abs(math.sin(math.pi * pulses * t / dur))
+        out.append(v * g)
+    return out
+
+
+def snd_snap(seed):
+    n = int(SFX_RATE * 0.035)
+    nz = _noise(n, seed)
+    hp = [x - l for x, l in zip(nz, _lowpass(nz, 0.35))]
+    return [v * math.exp(-i / SFX_RATE * 160) for i, v in enumerate(hp)]
+
+
+def snd_growl(dur, f0, seed):
+    n = int(SFX_RATE * dur)
+    rough = _lowpass(_noise(n, seed), 0.02)
+    breath = _lowpass(_noise(n, seed + 1), 0.15)
+    out, ph = [], 0.0
+    for i in range(n):
+        t = i / SFX_RATE
+        f = f0 * (1.0 + 0.08 * rough[i] * 8)
+        ph += TWO_PI * f / SFX_RATE
+        v = sum(math.sin(k * ph) / k for k in range(1, 7))
+        am = 0.55 + 0.45 * math.sin(TWO_PI * 27 * t)
+        out.append((v * am * 0.8 + breath[i] * 1.5) * _env(t, 0.02, dur, 1.2))
+    return out
+
+
+def snd_tone(dur, f_of_t, harmonics, seed=0, vib=0.0, attack=0.01, curve=1.5, breath=0.0):
+    n = int(SFX_RATE * dur)
+    nz = _lowpass(_noise(n, seed), 0.3) if breath else None
+    out, ph = [], 0.0
+    for i in range(n):
+        t = i / SFX_RATE
+        f = f_of_t(t) * (1.0 + vib * math.sin(TWO_PI * 6 * t))
+        ph += TWO_PI * f / SFX_RATE
+        v = sum(a * math.sin(k * ph) for k, a in harmonics)
+        if nz:
+            v += nz[i] * breath
+        out.append(v * _env(t, attack, dur, curve))
+    return out
+
+
+def snd_drum(f, dur=0.09):
+    return [voice("drum", f, i / SFX_RATE) for i in range(int(SFX_RATE * dur))]
+
+
+def _glide(a, b, dur):
+    return lambda t: a * (b / a) ** min(1.0, t / dur)
+
+
+NATURAL_BUILDERS = {
+    # attacks (all short, every one different)
+    "bite1": lambda: _mix((0.0, snd_snap(11), 1.0), (0.012, snd_growl(0.22, 105, 12), 0.7)),
+    "bite2": lambda: _mix((0.0, snd_snap(21), 1.0), (0.012, snd_growl(0.22, 128, 22), 0.7)),
+    "fury1": lambda: _mix((0.0, snd_growl(0.34, 95, 31), 0.8), *[(s, snd_snap(32 + k), 0.9) for k, s in enumerate((0.02, 0.09, 0.15, 0.22, 0.29))]),
+    "fury2": lambda: _mix((0.0, snd_growl(0.34, 116, 41), 0.8), *[(s, snd_snap(42 + k), 0.9) for k, s in enumerate((0.03, 0.08, 0.16, 0.21, 0.28))]),
+    "spit": lambda: _mix((0.0, snd_hiss(0.16, 51, cut=0.6, attack=0.004, curve=2.2), 1.0), (0.0, snd_drum(140, 0.05), 0.4)),
+    "spray": lambda: snd_hiss(0.34, 61, cut=0.55, attack=0.01, curve=1.0, pulses=3),
+    "strike": lambda: _mix((0.0, snd_hiss(0.33, 71, cut=0.5, attack=0.004, curve=1.2), 1.0), (0.0, snd_drum(95, 0.1), 0.5)),
+    # animal calls
+    "peacock": lambda: _mix(
+        (0.0, snd_tone(0.24, _glide(640, 900, 0.2), [(1, 1.0), (3, 0.5), (5, 0.3), (7, 0.15)], vib=0.02, attack=0.02), 1.0),
+        (0.30, snd_tone(0.50, lambda t: 880 + 260 * math.sin(math.pi * min(1.0, t / 0.5)), [(1, 1.0), (3, 0.5), (5, 0.3), (7, 0.15)], vib=0.03, attack=0.03, curve=1.2), 1.0)),
+    "deer_bark": lambda: snd_tone(0.2, _glide(1150, 720, 0.18), [(1, 1.0), (2, 0.45), (3, 0.25), (4, 0.1)], seed=81, attack=0.006, curve=2.0, breath=0.4),
+    "boar_grunt": lambda: _mix(*[(s, [v * abs(math.sin(math.pi * 72 * i / SFX_RATE)) ** 3 * _env(i / SFX_RATE, 0.015, 0.13, 1.5) + 0.4 * math.sin(TWO_PI * 85 * i / SFX_RATE) * _env(i / SFX_RATE, 0.015, 0.13, 1.5)
+                                     for i, v in enumerate(_lowpass(_noise(int(SFX_RATE * 0.13), 91 + k), 0.08))], 1.0) for k, s in enumerate((0.0, 0.2, 0.37))]),
+    "lizard_hiss": lambda: snd_hiss(0.7, 101, cut=0.35, attack=0.05, curve=1.0, pulses=2),
+    "tortoise_huff": lambda: [v * 3.0 * _env(i / SFX_RATE, 0.12, 0.45, 1.0) for i, v in enumerate(_lowpass(_noise(int(SFX_RATE * 0.45), 111), 0.05))],
+    "hare_thump": lambda: _mix((0.0, snd_drum(72), 1.0), (0.16, snd_drum(68), 1.0)),
+    "mongoose_chatter": lambda: _mix(*[(k * 0.05, snd_tone(0.028, (lambda f: (lambda t: f))(2300 + 180 * math.sin(k * 1.7)), [(1, 1.0), (2, 0.4)], attack=0.002, curve=2.0), 1.0) for k in range(9)]),
+    "parakeets": lambda: _mix(*[(s, snd_tone(0.08, _glide(2600, 3400, 0.08), [(1, 1.0), (2, 0.5), (3, 0.35)], attack=0.004, curve=1.5), 1.0) for s in (0.0, 0.13, 0.3, 0.42)]),
+    "langur_whoop": lambda: _mix(*[(s, snd_tone(0.28, _glide(290, 520, 0.22), [(1, 1.0), (2, 0.5), (3, 0.25)], seed=121, vib=0.02, attack=0.03, curve=1.3, breath=0.2), 1.0) for s in (0.0, 0.36)]),
+    "jackal_howl": lambda: _mix((0.0, snd_tone(0.7, lambda t: 620 + 300 * math.sin(math.pi * min(1.0, t / 0.7)), [(1, 1.0), (2, 0.35), (3, 0.15)], vib=0.03, attack=0.06, curve=1.0), 1.0),
+                                *[(0.75 + k * 0.1, snd_tone(0.06, _glide(1100, 800, 0.06), [(1, 1.0), (2, 0.3)], attack=0.004), 0.8) for k in range(3)]),
+    "porcupine_rattle": lambda: _mix(*[(k * 0.028, snd_snap(131 + k), 0.8) for k in range(15)]),
+    "nilgai_snort": lambda: _mix((0.0, [v * 3.0 * _env(i / SFX_RATE, 0.02, 0.3, 1.5) for i, v in enumerate(_lowpass(_noise(int(SFX_RATE * 0.3), 141), 0.12))], 1.0),
+                                 (0.0, snd_tone(0.3, lambda t: 120, [(1, 1.0), (2, 0.5)], attack=0.02, curve=1.5), 0.5)),
+    "squirrel_chip": lambda: _mix(*[(k * 0.09, snd_tone(0.035, _glide(3600, 3000, 0.035), [(1, 1.0), (2, 0.25)], attack=0.002, curve=2.0), 1.0) for k in range(5)]),
+    "pangolin_sniff": lambda: _mix(*[(k * 0.14, [v * 3.0 * _env(i / SFX_RATE, 0.01, 0.07, 1.5) for i, v in enumerate(_lowpass(_noise(int(SFX_RATE * 0.07), 151 + k), 0.25))], 1.0) for k in range(3)]),
+    "rooster_crow": lambda: _mix(*[(s, snd_tone(d, _glide(a, b, d), [(1, 1.0), (2, 0.6), (3, 0.45), (4, 0.25)], seed=161, vib=0.015, attack=0.01, curve=0.8, breath=0.15), 1.0)
+                                   for s, d, a, b in ((0.0, 0.12, 520, 700), (0.14, 0.12, 700, 760), (0.28, 0.14, 760, 820), (0.44, 0.42, 820, 560))]),
+    "hoopoe_oop": lambda: _mix(*[(k * 0.22, snd_tone(0.11, lambda t: 380, [(1, 1.0), (2, 0.15)], attack=0.015, curve=1.2), 1.0) for k in range(3)]),
+    "myna_whistle": lambda: _mix(*[(s, snd_tone(0.09, _glide(a, b, 0.09), [(1, 1.0), (2, 0.2)], attack=0.005, curve=1.2), 1.0)
+                                   for s, a, b in ((0.0, 1300, 2100), (0.12, 2100, 1500), (0.26, 1800, 2400), (0.4, 1200, 1250))]),
+    "frog_croak": lambda: _mix(*[(s, [math.sin(TWO_PI * 190 * i / SFX_RATE) * (0.5 + 0.5 * math.sin(TWO_PI * 26 * i / SFX_RATE)) * _env(i / SFX_RATE, 0.01, 0.22, 1.2)
+                                     for i in range(int(SFX_RATE * 0.22))], 1.0) for s in (0.0, 0.3)]),
+    "crow_caw": lambda: _mix(*[(s, _mix((0.0, snd_tone(0.24, _glide(720, 540, 0.24), [(1, 1.0), (2, 0.7), (3, 0.5), (4, 0.3)], attack=0.01, curve=1.0), 1.0),
+                                        (0.0, snd_hiss(0.24, 171, cut=0.4), 0.6)), 1.0) for s in (0.0, 0.34)]),
+    "egret_croak": lambda: _mix((0.0, snd_tone(0.3, _glide(260, 200, 0.3), [(1, 1.0), (2, 0.8), (3, 0.6), (5, 0.4)], attack=0.01, curve=1.0), 1.0), (0.0, snd_hiss(0.3, 181, cut=0.3), 0.5)),
+    "kite_whistle": lambda: _mix((0.0, snd_tone(0.35, _glide(2000, 2700, 0.3), [(1, 1.0), (2, 0.15)], vib=0.01, attack=0.02, curve=0.6), 1.0),
+                                 (0.38, snd_tone(0.5, lambda t: 2600 - 900 * t / 0.5 + 120 * math.sin(TWO_PI * 22 * t), [(1, 1.0)], attack=0.01, curve=1.0), 1.0)),
 }
+AMBIENT_SOUNDS = ("peacock", "deer_bark", "boar_grunt", "lizard_hiss", "tortoise_huff", "hare_thump", "mongoose_chatter", "parakeets",
+                  "langur_whoop", "jackal_howl", "porcupine_rattle", "nilgai_snort", "squirrel_chip", "pangolin_sniff", "rooster_crow",
+                  "hoopoe_oop", "myna_whistle", "frog_croak", "crow_caw", "egret_croak", "kite_whistle")
+ANIMAL_CALLS = {"peacock": "peacock", "deer": "deer_bark", "boar": "boar_grunt", "lizard": "lizard_hiss",
+                "tortoise": "tortoise_huff", "hare": "hare_thump", "mongoose": "mongoose_chatter", "snake": "strike",
+                "birds": "parakeets", "parakeets": "parakeets", "egrets": "egret_croak", "crows": "crow_caw", "kite": "kite_whistle",
+                "langur": "langur_whoop", "jackal": "jackal_howl", "porcupine": "porcupine_rattle", "nilgai": "nilgai_snort",
+                "palm_squirrel": "squirrel_chip", "pangolin": "pangolin_sniff", "junglefowl": "rooster_crow", "hoopoe": "hoopoe_oop",
+                "myna": "myna_whistle", "frog": "frog_croak"}
+# Attack tool -> its natural sound (P1 and P2 mongooses sound different)
+ATTACK_TUNES = {"sq1_shot": "bite1", "sq1_nova": "fury1", "sq2_shot": "bite2", "sq2_nova": "fury2",
+                "vp_spit": "spit", "vp_burst": "spray", "vp_bite": "strike"}
 
-# ...and its own key, so the same tool never sounds the same in two modes
-MODE_KEYS = {1: 0, 2: 5, 3: -3}
+_natural_cache = {}
 
-# Every attacking tool plays its own little tune: (instrument, base Hz, [(scale step, seconds), ...])
-ATTACK_TUNES = {
-    "sq1_shot":  ("bell",    523.25, [(0, 0.05), (4, 0.09)]),                          # P1 squirrel laser
-    "sq1_nova":  ("pad",     392.00, [(0, 0.05), (2, 0.05), (4, 0.05), (7, 0.20)]),    # P1 squirrel nova
-    "sq2_shot":  ("pluck",   587.33, [(2, 0.05), (5, 0.09)]),                          # P2 squirrel blaster
-    "sq2_nova":  ("marimba", 440.00, [(7, 0.05), (5, 0.05), (3, 0.05), (0, 0.20)]),    # P2 squirrel nova
-    "vp_spit":   ("reed",    196.00, [(1, 0.07), (0, 0.11)]),                          # viper venom spit
-    "vp_burst":  ("fm",      146.83, [(0, 0.07), (2, 0.07), (4, 0.18)]),               # viper venom burst
-    "vp_bite":   ("drum",    150.00, [(0, 0.14)]),                                     # squirrel/viper clash
-}
-# In Squirrel vs Viper the human-controlled viper gets its own instruments
-PVP_INSTRUMENTS = {"vp_spit": "marimba", "vp_burst": "bell", "vp_bite": "drum"}
 
-def sound_tier(level):
-    """Attack tunes move up a step every 3 levels (0-11)."""
-    return max(0, min(11, (max(1, level) - 1) // 3))
+def natural_sfx(name):
+    """Build a natural sound once and cache it (ambient calls play softer than the fight)."""
+    if name not in _natural_cache:
+        try:
+            buf = NATURAL_BUILDERS[name]()
+            snd = render_sound(len(buf) / SFX_RATE, lambda t: buf[min(len(buf) - 1, int(t * SFX_RATE))], peak=0.6)
+            if snd and name in AMBIENT_SOUNDS:
+                snd.set_volume(0.45)
+            _natural_cache[name] = snd
+        except Exception:
+            _natural_cache[name] = None
+    return _natural_cache[name]
 
-def render_tune(instrument, base, notes, scale, transpose, tempo):
-    starts = []
-    t0 = 0.0
-    for step, dur in notes:
-        semi = scale[step % len(scale)] + 12 * (step // len(scale)) + transpose
-        starts.append((t0, base * 2 ** (semi / 12.0)))
-        t0 += dur * tempo
-    ring = 0.08   # short tail so rapid fire never blends into a continuous drone
-    total = min(0.35, t0 + ring)
-
-    def fn(t):
-        v = 0.0
-        for st, fr in starts:
-            lt = t - st
-            if 0.0 <= lt < total:
-                v += voice(instrument, fr, lt)
-        return v
-
-    return render_sound(total, fn)
-
-_attack_sfx_cache = {}
 
 def get_attack_sfx(tool, mode, level):
-    """Unique tune per (attack tool, game mode, level tier), built once and cached."""
-    tier = sound_tier(level)
-    key = (tool, mode, tier)
-    if key not in _attack_sfx_cache:
-        instrument, base, notes = ATTACK_TUNES[tool]
-        if mode == 3 and tool in PVP_INSTRUMENTS:
-            instrument = PVP_INSTRUMENTS[tool]
-        try:
-            _attack_sfx_cache[key] = render_tune(instrument, base, notes, MODE_SCALES.get(mode, MODE_SCALES[1]),
-                                                 transpose=tier + MODE_KEYS.get(mode, 0), tempo=max(0.7, 1.0 - tier * 0.025))
-        except Exception:
-            _attack_sfx_cache[key] = None
-    return _attack_sfx_cache[key]
+    """The natural sound of an attack (same in every mode and level)."""
+    return natural_sfx(ATTACK_TUNES[tool])
+
 
 def play_sfx(sfx):
-    """Only attack actions make sound. A repeat of the same attack restarts its sound instead of stacking copies."""
+    """Sounds come only from actions (attacks, animal calls). A repeat restarts its sound instead of stacking copies."""
     if sfx and not audio_muted:
         try:
             sfx.stop()
@@ -365,17 +470,20 @@ class DeadSnake:
         viper.hole = None
         self.life = frames
         self.total = frames
+        layer = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)   # drawn once, then only faded
+        viper.draw(layer)
+        box = layer.get_bounding_rect()
+        self.pos = box.topleft
+        self.img = layer.subsurface(box).copy() if box.width and box.height else None
 
     def update(self):
         self.life -= 1
 
     def draw(self, surface):
-        if self.life <= 0:
+        if self.life <= 0 or self.img is None:
             return
-        layer = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        self.v.draw(layer)
-        layer.set_alpha(int(255 * self.life / self.total))
-        surface.blit(layer, (0, 0))
+        self.img.set_alpha(int(255 * self.life / self.total))
+        surface.blit(self.img, self.pos)
 
 
 class Shard:
@@ -553,8 +661,9 @@ JUNGLE_SNAKES = 4               # wild vipers roaming the jungle on their own
 JUNGLE_SNAKE_SCALE = 0.8
 JUNGLE_SPOT_RANGE = 220         # a wild mongoose and a wild snake this close spot each other and fight to the kill
 JUNGLE_RESPAWN_FRAMES = 300     # a new wild animal turns up every 5 s while the jungle is short of one
-ONLOOKER_KINDS_AT_ONCE = 3      # three kinds of other animals in the jungle at a time...
-ONLOOKER_ROTATE_FRAMES = 2400   # ...and every 40 s one kind wanders off and a different kind comes in
+ONLOOKER_KINDS_AT_ONCE = 5      # five kinds of other animals in the jungle at a time (16 kinds in all)...
+ONLOOKER_ROTATE_FRAMES = 1800   # ...and every 30 s one kind wanders off and a different kind comes in
+FLEE_RANGE = 170                # an onlooker runs from a fight that comes this close
 VIPER_SCALE = 1.3               # fighting vipers: thick body, big head...
 VIPER_SEGMENTS = 36             # ...and a very long tail (was 24 segments)
 MONGOOSE_COLORS = {                 # fur, dark fur, belly, tail tip
@@ -759,6 +868,10 @@ class SquirrelPlayer(Fighter):
         def line(col, a, b, w):
             pygame.draw.line(surface, col, at(*a), at(*b), max(1, int(w * S)))
 
+        fluff = getattr(self, "fluff", 0.0)
+        fluff += (getattr(self, "fluff_target", 0.0) - fluff) * 0.12      # fur bristles up when a snake is near
+        self.fluff = fluff
+        puff = 1.0 + 0.35 * fluff
         last = getattr(self, "_last_xy", (ox, oy))
         moving = math.hypot(ox - last[0], oy - last[1]) > 0.3
         self._last_xy = (ox, oy)
@@ -776,15 +889,15 @@ class SquirrelPlayer(Fighter):
         oval((34, 26, 17), -70, 14, 50, 8)
 
         # Tail: long and tapering, fur puffed up the way a mongoose fluffs it against a snake
-        tail = _chain([(-34, -2), (-52, wave * 2), (-68, 4 + wave * 4), (-84, 2 + wave * 6), (-98, -2 + wave * 7)], 14, 5, step=4)
+        tail = _chain([(-34, -2), (-52, wave * 2), (-68, 4 + wave * 4), (-84, 2 + wave * 6), (-98, -2 + wave * 7)], 14 * puff, 5 * puff, step=4)
         for (lx, ly), r in tail:
             circ(outline, lx, ly, r + 1.5)
         for k, ((lx, ly), r) in enumerate(tail):
             circ(tip if k > len(tail) * 0.72 else fur, lx, ly, r)
         for k in range(0, len(tail) - 2, 2):
             (lx, ly), r = tail[k]
-            line(dark, (lx, ly - r + 1), (lx - 4, ly - r - 5), 1.5)
-            line(dark, (lx, ly + r - 1), (lx - 4, ly + r + 4), 1.5)
+            line(dark, (lx, ly - r + 1), (lx - 4, ly - r - 5 * puff), 1.5)
+            line(dark, (lx, ly + r - 1), (lx - 4, ly + r + 4 * puff), 1.5)
 
         def leg(hx, phase, col):
             sw = stride * 7 * phase
@@ -805,7 +918,7 @@ class SquirrelPlayer(Fighter):
         oval(fur, 0, 0, 80, 30)
         oval(light, 2, 7, 62, 13)
         for lx in range(-34, 24, 6):
-            spike = [(lx, -12), (lx + 2, -20 - ((lx // 6) % 2) * 3), (lx + 6, -12)]
+            spike = [(lx, -12), (lx + 2, -20 - ((lx // 6) % 2) * 3 - 7 * fluff), (lx + 6, -12)]
             poly(dark, spike)
             poly(outline, spike, 1)
         for lx, ly in MONGOOSE_GRIZZLE:
@@ -901,6 +1014,7 @@ class JungleMongoose:
 
     def step(self, particles=None):
         b = self.body
+        b.fluff_target = 1.0 if self.foe is not None else 0.0
         if self.foe is not None:
             self.fight(particles if particles is not None else [])
             return
@@ -987,7 +1101,7 @@ class JungleSnake:
         self.v.draw(surface)
 
 
-def jungle_life(mongooses, snakes, fx, particles, rnd, clock, busy_holes):
+def jungle_life(mongooses, snakes, fx, particles, rnd, clock, busy_holes, call_fn=None):
     """One frame of the wild jungle: everyone roams on their own; a free wild mongoose and a free
     wild snake that spot each other fight until one is dead; newcomers keep the jungle full."""
     for m in mongooses:
@@ -998,10 +1112,15 @@ def jungle_life(mongooses, snakes, fx, particles, rnd, clock, busy_holes):
             s = min(free, key=lambda s: math.hypot(s.v.x - m.body.x, s.v.y - m.body.y))
             if math.hypot(s.v.x - m.body.x, s.v.y - m.body.y) < JUNGLE_SPOT_RANGE:
                 m.foe, s.foe = s, m
+                if call_fn:
+                    call_fn("mongoose", True)
     for m in mongooses:
         m.step(particles)
     for s in snakes:
+        was = s.v.strike_t
         s.step(particles)
+        if call_fn and s.v.strike_t > was:
+            call_fn("snake", True)
     for s in snakes[:]:
         if s.hp <= 0:                           # the snake is killed: it breaks apart
             fx.extend(s.v.burst_pieces())
@@ -1031,6 +1150,202 @@ def jungle_life(mongooses, snakes, fx, particles, rnd, clock, busy_holes):
 
 
 SHADOW = (34, 26, 17)
+
+
+def _leaf_cluster(surf, cx, cy, r, rnd, n):
+    """A rounded mass of leaves: dark underneath, lit from the top left."""
+    shades = [(30, 54, 24), (44, 78, 32), (60, 100, 40), (84, 128, 52), (112, 156, 66)]
+    for k, col in enumerate(shades):
+        for _ in range(n):
+            a = rnd.uniform(0, math.tau)
+            d = rnd.uniform(0, r * (1.0 - k * 0.12))
+            x = cx + math.cos(a) * d - k * r * 0.06
+            y = cy + math.sin(a) * d * 0.8 - k * r * 0.08
+            pygame.draw.circle(surf, col, (int(x), int(y)), rnd.randint(int(r * 0.12) + 3, int(r * 0.2) + 5))
+
+
+def make_foliage():
+    """Trees and bushes around the edges of the arena (user, 2026-10-10). Each piece is drawn once;
+    the canopies and bushes sway a little every frame. Returns [(surface, (x, y), phase, sway px)]."""
+    rnd = random.Random(23)
+    items = []
+
+    def trunk(x, y_top, y_bot, w):
+        s = pygame.Surface((w + 20, y_bot - y_top + 10), pygame.SRCALPHA)
+        pts = [(10, y_bot - y_top), (10 + w * 0.25, 0), (10 + w * 0.75, 0), (10 + w, y_bot - y_top)]
+        pygame.draw.polygon(s, (66, 46, 28), pts)
+        for k in range(6):                                       # bark lines
+            bx = 10 + w * (0.25 + 0.1 * k)
+            pygame.draw.line(s, (44, 30, 18), (bx, 4), (bx + rnd.randint(-3, 3), y_bot - y_top - 4), 2)
+        pygame.draw.ellipse(s, SHADOW, (0, y_bot - y_top - 6, w + 20, 12))
+        items.append((s, (x - (w + 20) // 2, y_top), 0.0, 0.0))
+
+    def canopy(cx, cy, r):
+        s = pygame.Surface((r * 3, r * 3), pygame.SRCALPHA)
+        for _ in range(4):
+            _leaf_cluster(s, r * 1.5 + rnd.uniform(-r * 0.5, r * 0.5), r * 1.5 + rnd.uniform(-r * 0.3, r * 0.3), r * 0.7, rnd, 26)
+        items.append((s, (cx - r * 3 // 2, cy - r * 3 // 2), rnd.uniform(0, 6), 3.0))
+
+    def bush(cx, cy, r):
+        s = pygame.Surface((r * 3, r * 2), pygame.SRCALPHA)
+        pygame.draw.ellipse(s, SHADOW, (r * 0.4, r * 1.45, r * 2.2, r * 0.45))
+        for k in range(3):
+            _leaf_cluster(s, r * (0.9 + k * 0.6), r * 1.1 - (k % 2) * r * 0.2, r * 0.55, rnd, 14)
+        items.append((s, (cx - r * 3 // 2, cy - r), rnd.uniform(0, 6), 1.6))
+
+    trunk(28, 300, 430, 34)
+    canopy(10, 230, 120)
+    trunk(WIDTH - 26, 470, 610, 36)
+    canopy(WIDTH - 6, 400, 125)
+    for cx, cy, r in ((70, HEIGHT - 110, 46), (400, HEIGHT - 84, 40), (880, HEIGHT - 88, 44),
+                      (WIDTH - 210, HEIGHT - 82, 42), (WIDTH - 60, 215, 44), (30, 590, 40)):
+        bush(cx, cy, r)
+    return items
+
+
+class FallingLeaf:
+    def __init__(self, rnd):
+        self.x = rnd.choice((rnd.uniform(0, 140), rnd.uniform(WIDTH - 140, WIDTH)))
+        self.y = rnd.uniform(140, 420)
+        self.land = self.y + rnd.uniform(90, 230)
+        self.t = rnd.uniform(0, 6)
+        self.life = 260
+        self.col = rnd.choice([(150, 120, 40), (120, 140, 50), (170, 100, 40), (96, 128, 44)])
+
+    def update(self):
+        self.t += 0.08
+        if self.y < self.land:
+            self.y += 0.9
+            self.x += math.sin(self.t) * 1.4
+        else:
+            self.life -= 1
+
+    def draw(self, surface):
+        w = max(2, int(abs(math.sin(self.t)) * 9))               # the leaf turns as it falls
+        pygame.draw.ellipse(surface, self.col, (int(self.x) - w // 2, int(self.y) - 2, w, 5))
+
+
+class BirdFlock:
+    """Birds flying over the jungle now and then, each kind with its own call: green parakeets,
+    white egrets, cawing crows, or a black kite circling high up before it drifts away."""
+    def __init__(self, rnd):
+        self.kind = rnd.choice(("parakeets", "parakeets", "egrets", "crows", "kite"))
+        self.dir = rnd.choice((-1, 1))
+        self.x = -60.0 if self.dir > 0 else WIDTH + 60.0
+        self.y = rnd.uniform(130, 330)
+        count = {"parakeets": (3, 6), "egrets": (3, 5), "crows": (2, 4), "kite": (1, 1)}[self.kind]
+        self.birds = [(-k * 40 * self.dir + rnd.uniform(-8, 8), rnd.uniform(-26, 26), rnd.uniform(0, 6)) for k in range(rnd.randint(*count))]
+        self.speed = {"parakeets": rnd.uniform(3.2, 4.4), "egrets": rnd.uniform(1.8, 2.4), "crows": rnd.uniform(2.6, 3.4), "kite": 1.6}[self.kind]
+        self.t = 0.0
+        self.circle = 0.0
+
+    def update(self):
+        if self.kind == "kite":                     # soars in wide circles while drifting across
+            self.circle += 0.02
+            self.x += self.speed * self.dir + math.cos(self.circle) * 2.2
+            self.y += math.sin(self.circle) * 1.2
+        else:
+            self.x += self.speed * self.dir
+        self.t += {"parakeets": 0.35, "egrets": 0.12, "crows": 0.22, "kite": 0.05}[self.kind]
+
+    def gone(self):
+        return (self.dir > 0 and self.x > WIDTH + 260) or (self.dir < 0 and self.x < -260)
+
+    def draw(self, surface):
+        if self.kind != "parakeets":
+            self.draw_big(surface)
+            return
+        for ox, oy, ph in self.birds:
+            x, y = self.x + ox, self.y + oy + math.sin(self.t * 0.3 + ph) * 4
+            flap = math.sin(self.t + ph) * 7
+            f = self.dir
+            pygame.draw.line(surface, (40, 110, 40), (x - 14 * f, y + 1), (x - 26 * f, y + 4), 2)             # long tail
+            pygame.draw.ellipse(surface, (70, 170, 60), (int(x - 9), int(y - 3), 18, 7))
+            pygame.draw.line(surface, (60, 150, 52), (x - 2 * f, y), (x - 8 * f, y - flap - 4), 3)            # wings
+            pygame.draw.line(surface, (60, 150, 52), (x - 2 * f, y), (x + 4 * f, y - flap - 3), 3)
+            pygame.draw.circle(surface, (210, 40, 40), (int(x + 9 * f), int(y)), 2)                            # red beak
+
+    def draw_big(self, surface):
+        body, wing, beak = {"egrets": ((245, 245, 240), (230, 230, 225), (230, 190, 40)),
+                            "crows": ((25, 25, 28), (35, 35, 40), (20, 20, 20)),
+                            "kite": ((90, 66, 44), (70, 52, 36), (40, 35, 30))}[self.kind]
+        span = {"egrets": 22, "crows": 15, "kite": 30}[self.kind]
+        for ox, oy, ph in self.birds:
+            x, y = self.x + ox, self.y + oy + math.sin(self.t * 0.5 + ph) * 3
+            flap = math.sin(self.t + ph) * (span * 0.45 if self.kind != "kite" else 3)
+            f = self.dir
+            if self.kind == "egrets":
+                pygame.draw.line(surface, (40, 40, 40), (x - 10 * f, y + 1), (x - 22 * f, y + 3), 2)       # legs trail behind
+            pygame.draw.line(surface, wing, (x, y), (x - span * 0.4 * f, y - span * 0.5 - flap), 4)
+            pygame.draw.line(surface, wing, (x - span * 0.4 * f, y - span * 0.5 - flap), (x - span * f, y - span * 0.3 - flap * 1.4), 3)
+            pygame.draw.line(surface, wing, (x, y), (x + span * 0.3 * f, y - span * 0.5 - flap), 4)
+            pygame.draw.line(surface, wing, (x + span * 0.3 * f, y - span * 0.5 - flap), (x + span * 0.7 * f, y - span * 0.3 - flap * 1.4), 3)
+            pygame.draw.ellipse(surface, body, (int(x - 9), int(y - 3), 18, 7))
+            if self.kind == "egrets":
+                pygame.draw.line(surface, body, (x + 6 * f, y - 1), (x + 12 * f, y - 5), 3)                 # S-neck tucked in
+            if self.kind == "kite":
+                pygame.draw.polygon(surface, body, [(x - 8 * f, y), (x - 18 * f, y - 4), (x - 18 * f, y + 4)])   # forked tail
+            pygame.draw.circle(surface, beak, (int(x + (16 if self.kind == "egrets" else 10) * f), int(y - (5 if self.kind == "egrets" else 0))), 2)
+
+
+class Flutter:
+    """Butterflies flitting about, and dragonflies darting in short straight bursts (silent)."""
+    def __init__(self, rnd, kind):
+        self.rnd, self.kind = rnd, kind
+        self.x, self.y = rnd.uniform(60, WIDTH - 60), rnd.uniform(150, HEIGHT - 110)
+        self.vx = self.vy = 0.0
+        self.t = rnd.uniform(0, 6)
+        self.col = rnd.choice([((240, 170, 40), (30, 25, 20)), ((90, 150, 230), (25, 30, 60)), ((245, 240, 220), (60, 60, 60)),
+                               ((230, 90, 50), (40, 25, 20)), ((250, 220, 70), (60, 50, 20))]) if kind == "butterfly" else \
+            rnd.choice([((70, 160, 200), (30, 60, 80)), ((200, 60, 40), (80, 30, 20)), ((90, 170, 80), (30, 60, 30))])
+        self.wait = 0
+
+    def update(self):
+        self.t += 0.3 if self.kind == "butterfly" else 0.9
+        if self.kind == "butterfly":
+            self.vx += self.rnd.uniform(-0.25, 0.25)
+            self.vy += self.rnd.uniform(-0.25, 0.25)
+            self.vx, self.vy = max(-1.6, min(1.6, self.vx)), max(-1.2, min(1.2, self.vy))
+        else:
+            self.wait -= 1
+            if self.wait <= 0:                      # hover, then a fast straight dart
+                a = self.rnd.uniform(0, math.tau)
+                sp = self.rnd.choice((0.0, 6.0))
+                self.vx, self.vy = math.cos(a) * sp, math.sin(a) * sp
+                self.wait = self.rnd.randint(12, 40)
+        self.x = min(WIDTH - 30, max(30, self.x + self.vx))
+        self.y = min(HEIGHT - 100, max(130, self.y + self.vy + (math.sin(self.t * 0.5) * 0.6 if self.kind == "butterfly" else 0)))
+
+    def draw(self, surface):
+        wing, body = self.col
+        x, y = int(self.x), int(self.y)
+        if self.kind == "butterfly":
+            w = max(1, int(abs(math.sin(self.t)) * 7))
+            pygame.draw.ellipse(surface, wing, (x - w - 1, y - 6, w, 7))
+            pygame.draw.ellipse(surface, wing, (x + 1, y - 6, w, 7))
+            pygame.draw.ellipse(surface, wing, (x - w // 2 - 2, y, max(1, w // 2 + 1), 5))
+            pygame.draw.ellipse(surface, wing, (x + 1, y, max(1, w // 2 + 1), 5))
+            pygame.draw.line(surface, body, (x, y - 4), (x, y + 4), 2)
+        else:
+            d = 1 if self.vx >= 0 else -1
+            pygame.draw.line(surface, body, (x - 9 * d, y), (x + 5 * d, y), 2)
+            flick = 3 if int(self.t) % 2 else 1
+            for wx in (-1, 2):
+                pygame.draw.ellipse(surface, wing, (x + wx * d - 4, y - 4 - flick, 8, 3))
+                pygame.draw.ellipse(surface, wing, (x + wx * d - 4, y + 1 + flick, 8, 3))
+            pygame.draw.circle(surface, body, (x + 6 * d, y), 2)
+
+
+# Light across the day: levels 1-10 run from morning to dusk, then the day starts again
+TIME_OF_DAY = [
+    ("MORNING", (255, 200, 130, 28)), ("MORNING", (255, 210, 150, 16)), ("NOON", None), ("NOON", None), ("NOON", None),
+    ("AFTERNOON", (255, 190, 110, 20)), ("AFTERNOON", (250, 170, 90, 32)), ("EVENING", (235, 130, 70, 50)),
+    ("EVENING", (200, 100, 80, 66)), ("DUSK", (30, 40, 95, 105)),
+]
+
+
+def time_of_day(level):
+    return TIME_OF_DAY[(max(1, level) - 1) % len(TIME_OF_DAY)]
 
 
 class _Paint:
@@ -1197,6 +1512,190 @@ def draw_hare(P, t, moving, me):
     Q.circ((200, 140, 140), 24, -7, 1.2)
 
 
+def _legs4(P, step, xs, top, foot, w, far, near, hoof=(30, 24, 18)):
+    for k, (hx, ph) in enumerate(zip(xs, (-1, 1, 1, -1))):
+        col = far if k < 2 else near
+        fx = hx + step * 5 * ph
+        P.line(col, (hx, top), (hx + step * 2.5 * ph, (top + foot) / 2), w)
+        P.line(col, (hx + step * 2.5 * ph, (top + foot) / 2), (fx, foot), max(1, w - 1))
+        P.oval(hoof, fx + 1, foot, w + 2, 3)
+
+
+def draw_langur(P, t, moving, me):
+    step = math.sin(t * 2.6) if moving else 0.0
+    P.oval(SHADOW, 0, 23, 56, 7)
+    tail = _chain([(-18, -6), (-30, -26), (-46, -36), (-60, -30), (-66, -16)], 3.5, 2, step=2)
+    for (lx, ly), r in tail:
+        P.circ((150, 148, 138), lx, ly, r)
+    _legs4(P, step, (-14, 12, -10, 16), 4, 22, 4, (130, 128, 120), (175, 172, 160), hoof=(25, 22, 20))
+    P.oval((150, 148, 138), 0, 0, 42, 22)
+    P.oval((185, 182, 170), 0, -1, 38, 18)
+    P.circ((205, 202, 190), 22, -12, 9)                                        # pale fur ruff
+    P.oval((25, 22, 20), 26, -11, 10, 10)                                      # black face
+    P.circ((230, 225, 210), 28, -13, 1.2)
+    P.line((205, 202, 190), (17, -21), (27, -19), 2)                           # brow fur
+
+
+def draw_jackal(P, t, moving, me):
+    step = math.sin(t * 2.8) if moving else 0.0
+    P.oval(SHADOW, 2, 25, 66, 7)
+    tail = _chain([(-24, -4), (-36, 4), (-44, 14)], 6, 4)
+    for (lx, ly), r in tail:
+        P.circ((120, 92, 56), lx, ly, r)
+    P.circ((40, 30, 20), -44, 15, 3.5)
+    _legs4(P, step, (-18, 14, -14, 18), 4, 24, 3, (140, 108, 66), (185, 145, 92), hoof=(60, 46, 30))
+    P.oval((140, 108, 66), 0, 0, 52, 22)
+    P.oval((190, 150, 96), 0, 1, 48, 18)
+    P.oval((110, 84, 52), -2, -6, 40, 8)                                       # dark saddle
+    P.poly((190, 150, 96), [(18, -6), (30, -16), (40, -14), (52, -8), (40, -4), (24, 4)])
+    P.poly((150, 115, 70), [(28, -16), (30, -27), (35, -16)])                  # pointed ears
+    P.poly((150, 115, 70), [(33, -15), (36, -25), (39, -14)])
+    P.circ((30, 22, 16), 52, -8, 1.8)
+    P.circ((25, 18, 12), 38, -12, 1.4)
+
+
+def draw_porcupine(P, t, moving, me):
+    step = math.sin(t * 2.0) if moving else 0.0
+    P.oval(SHADOW, 0, 15, 54, 7)
+    for hx, ph in ((-12, 1), (10, -1)):
+        P.line((50, 40, 32), (hx, 6), (hx + step * 3 * ph, 14), 4)
+    P.oval((48, 40, 34), 0, 0, 40, 24)
+    for k in range(16):                                                        # quills, black and white
+        a = math.pi * (0.55 + 0.85 * k / 15)
+        x0, y0 = math.cos(a) * 14, -math.sin(a) * 9
+        L = 18 + (k % 3) * 4
+        P.line((20, 18, 16), (x0, y0), (x0 - math.cos(a - 0.5) * L, y0 - math.sin(a - 0.5) * L * 0.8), 2)
+        P.line((235, 230, 215), (x0 - math.cos(a - 0.5) * L * 0.5, y0 - math.sin(a - 0.5) * L * 0.4), (x0 - math.cos(a - 0.5) * L, y0 - math.sin(a - 0.5) * L * 0.8), 1)
+    P.oval((70, 58, 48), 20, 2, 16, 12)
+    P.circ((20, 15, 10), 26, 0, 1.4)
+    P.circ((40, 30, 28), 28, 4, 1.4)
+
+
+def draw_nilgai(P, t, moving, me):
+    step = math.sin(t * 2.4) if moving else 0.0
+    P.oval(SHADOW, 4, 38, 86, 9)
+    _legs4(P, step, (-24, 22, -18, 28), 6, 37, 4, (90, 95, 105), (120, 125, 135), hoof=(30, 30, 34))
+    for hx in (-18, 28):                                                       # white leg bands
+        P.line((230, 230, 225), (hx - 1, 28), (hx + 3, 28), 2)
+    P.poly((95, 100, 112), [(-34, 2), (-28, -10), (20, -18), (30, -10), (28, 10), (-30, 12)])   # back slopes down to the rear
+    P.poly((125, 130, 142), [(-31, 2), (-26, -7), (19, -15), (27, -8), (25, 8), (-28, 9)])
+    P.line((40, 40, 46), (14, -16), (-14, -10), 3)                             # dark mane
+    P.poly((125, 130, 142), [(20, -14), (30, -36), (38, -34), (32, -6)])
+    P.oval((235, 235, 230), 31, -22, 6, 6)                                     # white throat patch
+    P.line((40, 40, 46), (30, -14), (28, -6), 2)                               # beard tuft
+    P.oval((125, 130, 142), 40, -38, 20, 11)
+    P.poly((125, 130, 142), [(44, -42), (54, -36), (52, -32), (44, -33)])
+    P.circ((25, 25, 30), 53, -35, 1.8)
+    P.circ((15, 15, 18), 42, -40, 1.6)
+    P.oval((110, 115, 125), 34, -46, 6, 10)
+    P.line((40, 40, 46), (38, -45), (40, -52), 2)                              # short horns
+
+
+def draw_palm_squirrel(P, t, moving, me):
+    hop = abs(math.sin(t * 3.6)) * 5 if moving else 0.0
+    P.oval(SHADOW, 0, 9, 26, 4)
+    Q = _Paint(P.s, P.ox, P.oy - hop * P.S, P.f, P.S)
+    tail = _chain([(-9, -2), (-16, -12), (-14, -24), (-8, -28)], 5, 4)
+    for (lx, ly), r in tail:
+        Q.circ((120, 104, 82), lx, ly, r)
+    Q.oval((128, 110, 86), 0, 0, 22, 12)
+    for dy in (-3, 0, 3):                                                      # three pale stripes
+        Q.line((225, 215, 190), (-8, -1 + dy * 0.6), (7, -2 + dy * 0.6), 1)
+    Q.circ((128, 110, 86), 11, -4, 5)
+    Q.circ((128, 110, 86), 9, -9, 1.8)
+    Q.circ((15, 10, 8), 13, -5, 1)
+    Q.line((110, 95, 75), (6, 5), (8, 8), 2)
+
+
+def draw_pangolin(P, t, moving, me):
+    step = math.sin(t * 1.8) if moving else 0.0
+    P.oval(SHADOW, -6, 14, 80, 7)
+    tail = _chain([(-20, 0), (-36, 6), (-50, 10)], 9, 4, step=5)
+    for (lx, ly), r in tail:
+        P.circ((110, 82, 50), lx, ly, r + 1)
+        P.circ((150, 116, 74), lx, ly, r)
+    for hx, ph in ((-10, 1), (12, -1)):
+        P.line((90, 70, 48), (hx, 6), (hx + step * 3 * ph, 13), 4)
+    P.oval((110, 82, 50), 0, 0, 44, 24)
+    for row, (yy, n) in enumerate(((-6, 6), (0, 6), (6, 5))):                  # overlapping scales
+        for k in range(n):
+            x = -18 + k * 7 + row * 2
+            P.poly((168, 130, 82), [(x, yy - 3), (x + 6, yy), (x, yy + 3)])
+            P.poly((95, 70, 42), [(x, yy - 3), (x + 6, yy), (x, yy + 3)], 1)
+    P.oval((160, 130, 100), 24, 3, 14, 8)
+    P.circ((20, 15, 10), 26, 1, 1)
+
+
+def draw_junglefowl(P, t, moving, me):
+    step = math.sin(t * 3.2) if moving else 0.0
+    peck = 0 if moving else max(0.0, math.sin(t * 0.9 + me.anim_t)) * 8
+    P.oval(SHADOW, -4, 20, 46, 6)
+    for k, (dx, dy) in enumerate(((-30, -26), (-34, -16), (-28, -8))):         # arching tail feathers
+        P.line((25, 60, 45), (-10, -6), (dx, dy), 4 - k)
+        P.line((15, 40, 35), (dx, dy), (dx + 4, dy + 12), 3 - k // 2)
+    for lx, ph in ((-2, 1), (4, -1)):
+        P.line((120, 110, 90), (lx, 6), (lx + step * 4 * ph, 19), 2)
+    P.oval((40, 30, 26), -2, 0, 28, 18)
+    P.oval((150, 70, 30), -4, -2, 18, 9)                                       # chestnut wing
+    hx, hy = 12, -14 + peck
+    P.poly((215, 150, 50), [(4, -6), (hx - 2, hy - 4), (hx + 4, hy + 2), (10, 0)])  # golden hackles
+    P.circ((200, 120, 40), hx, hy, 5)
+    P.poly((215, 40, 35), [(hx - 3, hy - 4), (hx - 1, hy - 9), (hx + 1, hy - 5), (hx + 3, hy - 9), (hx + 4, hy - 4)])   # comb
+    P.oval((215, 40, 35), hx + 3, hy + 6, 4, 6)                                # wattle
+    P.poly((210, 190, 140), [(hx + 4, hy - 1), (hx + 9, hy + 1), (hx + 4, hy + 2)])
+    P.circ((15, 10, 8), hx + 1, hy - 1, 1)
+
+
+def draw_hoopoe(P, t, moving, me):
+    step = math.sin(t * 3.4) if moving else 0.0
+    crest = 1.0 if not moving and math.sin(t * 0.7 + me.anim_t) > 0.3 else 0.3
+    P.oval(SHADOW, 0, 16, 34, 5)
+    for lx, ph in ((-2, 1), (3, -1)):
+        P.line((60, 50, 45), (lx, 6), (lx + step * 3 * ph, 15), 1)
+    P.poly((30, 25, 20), [(-6, -2), (-22, 2), (-6, 4)])                        # tail
+    P.oval((215, 150, 90), 0, 0, 20, 12)
+    for k in range(4):                                                         # black-and-white barred wing
+        P.line((20, 18, 16) if k % 2 == 0 else (240, 235, 225), (-8 + k * 3, -3), (-6 + k * 3, 4), 2)
+    P.circ((215, 150, 90), 9, -6, 5)
+    for k in range(5):                                                         # fan crest, raised when it rests
+        a = math.pi * (0.35 + 0.12 * k)
+        P.line((205, 140, 80), (8, -9), (8 - math.cos(a) * 9 * (0.6 + crest), -9 - math.sin(a) * 9 * (0.6 + crest)), 2)
+        P.circ((20, 18, 16), 8 - math.cos(a) * 9 * (0.6 + crest), -9 - math.sin(a) * 9 * (0.6 + crest), 1)
+    P.line((40, 35, 30), (13, -6), (24, -2), 1)                                # long thin beak
+    P.circ((15, 10, 8), 11, -7, 1)
+
+
+def draw_myna(P, t, moving, me):
+    hop = abs(math.sin(t * 4.0)) * 3 if moving else 0.0
+    P.oval(SHADOW, 0, 13, 26, 4)
+    Q = _Paint(P.s, P.ox, P.oy - hop * P.S, P.f, P.S)
+    for lx in (-2, 2):
+        Q.line((220, 190, 60), (lx, 5), (lx, 12), 1)
+    Q.poly((40, 30, 24), [(-6, -2), (-16, 2), (-6, 3)])
+    Q.oval((110, 78, 50), 0, 0, 18, 11)
+    Q.oval((240, 235, 225), -3, -1, 6, 3)                                      # white wing patch
+    Q.circ((25, 20, 18), 8, -5, 5)
+    Q.oval((235, 200, 50), 10, -5, 4, 3)                                       # yellow eye patch
+    Q.circ((10, 8, 6), 10, -5, 1)
+    Q.poly((240, 200, 60), [(12, -5), (17, -4), (12, -3)])
+
+
+def draw_frog(P, t, moving, me):
+    hop = abs(math.sin(t * 3.0)) * 10 if moving else 0.0
+    puff = 1.0 + (0.4 if not moving and math.sin(t * 2.0 + me.anim_t) > 0.7 else 0.0)
+    P.oval(SHADOW, 0, 7, 24, 4)
+    Q = _Paint(P.s, P.ox, P.oy - hop * P.S, P.f, P.S)
+    Q.oval((70, 100, 40), -6, 3, 12, 7)                                        # folded back leg
+    Q.oval((90, 125, 50), 0, 0, 20, 11)
+    for sx in (-4, 1, 5):
+        Q.circ((60, 80, 32), sx, -2, 1.5)
+    Q.oval((200, 200, 140), 6, 3, 7 * puff, 5 * puff)                          # throat sac
+    Q.circ((90, 125, 50), 6, -5, 3)
+    Q.circ((230, 200, 60), 6, -6, 2)
+    Q.circ((10, 10, 6), 6.5, -6, 1)
+    Q.line((70, 100, 40), (6, 3), (9, 6), 2)
+
+
 ONLOOKER_KINDS = {
     # kind: (draw, walk speed, how many, size, rest frames)
     "peacock": (draw_peacock, 1.0, (1, 2), 1.0, (90, 360)),
@@ -1205,6 +1704,16 @@ ONLOOKER_KINDS = {
     "lizard": (draw_lizard, 0.9, (1, 2), 0.9, (120, 400)),
     "tortoise": (draw_tortoise, 0.3, (1, 2), 0.9, (200, 500)),
     "hare": (draw_hare, 2.4, (2, 3), 1.0, (40, 200)),
+    "langur": (draw_langur, 1.6, (1, 3), 1.0, (90, 300)),
+    "jackal": (draw_jackal, 1.8, (1, 2), 1.0, (60, 240)),
+    "porcupine": (draw_porcupine, 0.7, (1, 1), 1.0, (120, 360)),
+    "nilgai": (draw_nilgai, 1.3, (1, 2), 1.0, (120, 360)),
+    "palm_squirrel": (draw_palm_squirrel, 2.2, (2, 3), 1.0, (40, 160)),
+    "pangolin": (draw_pangolin, 0.6, (1, 1), 1.0, (150, 400)),
+    "junglefowl": (draw_junglefowl, 1.4, (2, 3), 1.0, (60, 240)),
+    "hoopoe": (draw_hoopoe, 1.6, (1, 2), 1.0, (60, 240)),
+    "myna": (draw_myna, 1.7, (2, 4), 1.0, (40, 180)),
+    "frog": (draw_frog, 1.2, (2, 3), 1.0, (120, 360)),
 }
 
 
@@ -1226,6 +1735,9 @@ class Onlooker:
         self.leaving = False
         self.gone = False
         self.moving = False
+        self.flee_t = 0
+        self.flee_from = (0.0, 0.0)
+        self.call_t = rnd.randint(300, 1500)
         self.pick()
 
     def pick(self):
@@ -1237,8 +1749,33 @@ class Onlooker:
         self.tx = -120.0 if self.x < WIDTH / 2 else WIDTH + 120.0
         self.ty = self.y
 
-    def step(self, watch):
+    def step(self, watch, threats=(), call_fn=None):
         self.moving = False
+        self.call_t -= 1
+        if self.call_t <= 0:                                     # its own call, now and then
+            self.call_t = self.rnd.randint(900, 2400)
+            if call_fn:
+                call_fn(self.kind, False)
+        if self.flee_t > 0:                                      # running from the fight
+            self.flee_t -= 1
+            dx, dy = self.x - self.flee_from[0], self.y - self.flee_from[1]
+            d = math.hypot(dx, dy) or 1.0
+            fast = self.speed * 2.2 if self.kind == "tortoise" else max(2.6, self.speed * 2.4)
+            self.x = max(40, min(WIDTH - 40, self.x + dx / d * fast))
+            self.y = max(140, min(HEIGHT - 100, self.y + dy / d * fast))
+            if abs(dx) > 1:
+                self.facing_right = dx > 0
+            self.anim_t += 0.1 + 0.06 * fast
+            self.moving = True
+            self.pick()
+            return
+        if not self.leaving:
+            for tx, ty in threats:
+                if math.hypot(tx - self.x, ty - self.y) < FLEE_RANGE:
+                    self.flee_t, self.flee_from, self.rest = 70, (tx, ty), 0
+                    if call_fn:
+                        call_fn(self.kind, True)                 # alarm call
+                    return
         if self.rest > 0:
             self.rest -= 1
             if watch is not None and abs(watch[0] - self.x) > 20:
@@ -1267,7 +1804,7 @@ class Onlooker:
         self.draw_fn(P, self.anim_t, self.moving, self)
 
 
-def onlooker_life(animals, kinds_now, rnd, clock, watch):
+def onlooker_life(animals, kinds_now, rnd, clock, watch, threats=(), call_fn=None):
     """Keep three kinds of onlooker animals in the jungle and swap one kind out every 40 s."""
     clock["t"] += 1
     if clock["t"] >= ONLOOKER_ROTATE_FRAMES:
@@ -1282,7 +1819,7 @@ def onlooker_life(animals, kinds_now, rnd, clock, watch):
         for _ in range(rnd.randint(*ONLOOKER_KINDS[new][2])):
             animals.append(Onlooker(new, rnd, from_edge=True))
     for a in animals:
-        a.step(watch)
+        a.step(watch, threats, call_fn)
     animals[:] = [a for a in animals if not a.gone]
 
 
@@ -1515,9 +2052,9 @@ class ViperEnemy(Fighter):
                 prev = (px, py, t)
                 continue
             d = math.hypot(px - prev[0], py - prev[1])
-            if d < 3:
+            if d < 4:
                 continue
-            steps = int(d / 3)
+            steps = int(d / 4)
             for s in range(1, steps + 1):
                 a = s / steps
                 path.append((prev[0] + (px - prev[0]) * a, prev[1] + (py - prev[1]) * a, prev[2] + (t - prev[2]) * a))
@@ -1650,13 +2187,34 @@ async def main():
     onlookers = [Onlooker(k, jungle_rnd) for k in kinds_now for _ in range(jungle_rnd.randint(*ONLOOKER_KINDS[k][2]))]
     onlooker_clock = {"t": 0}
     world_t = {"t": 0}
+    foliage = make_foliage()
+    leaves = []
+    flocks = []
+    flutters = [Flutter(jungle_rnd, "butterfly") for _ in range(5)] + [Flutter(jungle_rnd, "dragonfly") for _ in range(2)]
+    flock_clock = {"t": jungle_rnd.randint(600, 1400)}
+    tod_layer = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    tod_state = {"level": None, "name": "NOON"}
+    fireflies = [(jungle_rnd.uniform(80, WIDTH - 80), jungle_rnd.uniform(160, HEIGHT - 120), jungle_rnd.uniform(0, 6)) for _ in range(16)]
+    hud_top = pygame.Surface((WIDTH, 106), pygame.SRCALPHA)
+    hud_top.fill((26, 19, 10, 150))
+    hud_bottom = pygame.Surface((WIDTH, 92), pygame.SRCALPHA)
+    hud_bottom.fill((26, 19, 10, 160))
+    calls = {"last": -9999}
+
+    def animal_call(kind, alarm):
+        """An animal's own call. Spaced out so the jungle never turns into noise."""
+        now = world_t["t"]
+        if now - calls["last"] < (30 if alarm else 150):
+            return
+        calls["last"] = now
+        play_sfx(natural_sfx(ANIMAL_CALLS[kind]))
     clock = pygame.time.Clock()
 
     font_hud = pygame.font.SysFont("consolas", 14, bold=True)
     font_hud_sm = pygame.font.SysFont("consolas", 11, bold=True)
     font_big = pygame.font.SysFont("arial", 48, bold=True)
 
-    tune_key = None
+    sound_warmup = list(NATURAL_BUILDERS)
 
     game_mode = 1  # 1: Solo vs AI, 2: Dual Squirrel vs AI, 3: Squirrel vs Viper
     level_state = {"level": 1, "kills": 0}
@@ -2060,15 +2618,15 @@ async def main():
     level_buttons = [(lvl, pygame.Rect(strip_x + i * (btn_w + btn_gap), HEIGHT - 66, btn_w, 22)) for i, lvl in enumerate(level_jumps)]
 
     def draw_level_bar(current_level):
-        lbl = font_hud.render("JUMP TO LEVEL:", True, (255, 205, 50))
+        lbl = font_hud.render("JUMP TO LEVEL:", True, (235, 190, 110))
         canvas.blit(lbl, (level_buttons[0][1].x - lbl.get_width() - 10, HEIGHT - 63))
         for lvl, r in level_buttons:
             active = (current_level // 10 * 10 if current_level >= 10 else 1) == lvl
-            pygame.draw.rect(canvas, (255, 205, 50) if active else (30, 40, 70), r, border_radius=4)
-            pygame.draw.rect(canvas, (255, 230, 120), r, 1, border_radius=4)
-            t = font_hud_sm.render(f"LV {lvl}", True, (20, 20, 30) if active else (230, 230, 230))
+            pygame.draw.rect(canvas, (235, 190, 110) if active else (72, 52, 32), r, border_radius=4)
+            pygame.draw.rect(canvas, (190, 160, 110), r, 1, border_radius=4)
+            t = font_hud_sm.render(f"LV {lvl}", True, (30, 24, 14) if active else (230, 230, 230))
             canvas.blit(t, t.get_rect(center=r.center))
-        hint = font_hud_sm.render("keys 1-9 = LV 10-90, 0 = LV 100, [ ] = -/+10", True, (160, 170, 200))
+        hint = font_hud_sm.render("keys 1-9 = LV 10-90, 0 = LV 100, [ ] = -/+10", True, (200, 185, 150))
         canvas.blit(hint, hint.get_rect(center=((level_buttons[0][1].x + level_buttons[-1][1].right) // 2, HEIGHT - 76)))
 
     font_help_title = pygame.font.SysFont("arial", 34, bold=True)
@@ -2120,43 +2678,44 @@ async def main():
         "",
         "TOUCH: drag left side = move, hold BITE (auto-aim),",
         "  tap FURY; MODE / HELP / MUTE next to the level bar.",
-        "SOUND: only attacks make sound (each has its tune).",
+        "SOUND: natural - hiss, snap, growl, and every jungle",
+        "  animal's own call (M mutes everything).",
     ]
 
     def draw_help_screen(current_level):
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        overlay.fill((6, 8, 18, 238))
+        overlay.fill((28, 20, 12, 238))
         canvas.blit(overlay, (0, 0))
-        title = font_help_title.render(GAME_NAME, True, (255, 205, 50))
+        title = font_help_title.render(GAME_NAME, True, (235, 190, 110))
         canvas.blit(title, title.get_rect(center=(WIDTH // 2, 34)))
-        m = font_help_head.render(f"MODE {game_mode}:  {MODE_NAMES[game_mode]}   (press T / MODE to change)      LEVEL: {current_level}", True, (0, 255, 220))
+        m = font_help_head.render(f"MODE {game_mode}:  {MODE_NAMES[game_mode]}   (press T / MODE to change)      LEVEL: {current_level}", True, (190, 215, 140))
         canvas.blit(m, m.get_rect(center=(WIDTH // 2, 70)))
 
         # Left column: every key
         x, y = 50, 100
-        canvas.blit(font_help_head.render("ALL KEYS", True, (255, 205, 50)), (x, y))
+        canvas.blit(font_help_head.render("ALL KEYS", True, (235, 190, 110)), (x, y))
         y += 26
         for key, what in HELP_CONTROLS:
             if what is None:
                 y += 4
-                canvas.blit(font_help.render(key, True, (120, 200, 255)), (x, y))
+                canvas.blit(font_help.render(key, True, (215, 180, 120)), (x, y))
             else:
                 canvas.blit(font_help.render(key, True, (255, 255, 255)), (x + 12, y))
-                canvas.blit(font_help.render(what, True, (190, 200, 220)), (x + 230, y))
+                canvas.blit(font_help.render(what, True, (220, 210, 185)), (x + 230, y))
             y += 21
 
         # Right column: how it works
         x, y = 690, 100
-        canvas.blit(font_help_head.render("HOW IT WORKS", True, (255, 205, 50)), (x, y))
+        canvas.blit(font_help_head.render("HOW IT WORKS", True, (235, 190, 110)), (x, y))
         y += 26
         for line in HELP_RULES:
             heading = line and not line.startswith(("-", " "))
-            col = (120, 200, 255) if heading else (190, 200, 220)
+            col = (215, 180, 120) if heading else (220, 210, 185)
             if line:
                 canvas.blit(font_help.render(line, True, col), (x, y))
             y += 21
 
-        go = font_help_head.render("PRESS ENTER / SPACE, CLICK, TAP, OR START ON A CONTROLLER TO PLAY", True, (80, 255, 120))
+        go = font_help_head.render("PRESS ENTER / SPACE, CLICK, TAP, OR START ON A CONTROLLER TO PLAY", True, (170, 205, 110))
         canvas.blit(go, go.get_rect(center=(WIDTH // 2, HEIGHT - 14)))
 
     # ---- Touch controls (phones / tablets). Hidden until the screen is touched. ----
@@ -2218,21 +2777,21 @@ async def main():
         # Joystick: appears where the left thumb lands
         base = touch["origin"] if touch["stick_id"] is not None else TOUCH_STICK_C
         knob = (base[0] + touch["vec"][0] * TOUCH_STICK_R, base[1] + touch["vec"][1] * TOUCH_STICK_R)
-        pygame.draw.circle(ui, (0, 229, 212, 60), base, TOUCH_STICK_R)
-        pygame.draw.circle(ui, (0, 229, 212, 200), base, TOUCH_STICK_R, 4)
-        pygame.draw.circle(ui, (0, 229, 212, 210), knob, int(TOUCH_STICK_R * 0.38))
+        pygame.draw.circle(ui, (200, 185, 140, 60), base, TOUCH_STICK_R)
+        pygame.draw.circle(ui, (200, 185, 140, 200), base, TOUCH_STICK_R, 4)
+        pygame.draw.circle(ui, (200, 185, 140, 210), knob, int(TOUCH_STICK_R * 0.38))
         # FIRE (hold): solid, bright and always clearly visible
         firing = bool(touch["fire_ids"])
-        pygame.draw.circle(ui, (255, 60, 60, 70), TOUCH_FIRE_C, TOUCH_FIRE_R + 14)                    # glow
-        pygame.draw.circle(ui, (255, 70, 70, 255) if firing else (225, 40, 55, 235), TOUCH_FIRE_C, TOUCH_FIRE_R)
+        pygame.draw.circle(ui, (170, 70, 40, 70), TOUCH_FIRE_C, TOUCH_FIRE_R + 14)                    # glow
+        pygame.draw.circle(ui, (190, 85, 50, 255) if firing else (160, 65, 40, 235), TOUCH_FIRE_C, TOUCH_FIRE_R)
         pygame.draw.circle(ui, (255, 255, 255, 255), TOUCH_FIRE_C, TOUCH_FIRE_R, 5)
         # NOVA (special) - fills up as the cooldown recharges
         p1 = p1_unit() or players[0]
         ready = 1.0 - (p1.special_timer / p1.special_cd) if p1.special_cd else 1.0
-        pygame.draw.circle(ui, (0, 200, 140, 235) if p1.special_timer == 0 else (0, 110, 80, 200), TOUCH_NOVA_C, TOUCH_NOVA_R)
+        pygame.draw.circle(ui, (110, 150, 60, 235) if p1.special_timer == 0 else (70, 95, 45, 200), TOUCH_NOVA_C, TOUCH_NOVA_R)
         pygame.draw.circle(ui, (255, 255, 255, 255), TOUCH_NOVA_C, TOUCH_NOVA_R, 4)
         if p1.special_timer > 0:
-            pygame.draw.arc(ui, (120, 255, 200, 255), pygame.Rect(TOUCH_NOVA_C[0] - TOUCH_NOVA_R, TOUCH_NOVA_C[1] - TOUCH_NOVA_R, TOUCH_NOVA_R * 2, TOUCH_NOVA_R * 2),
+            pygame.draw.arc(ui, (170, 210, 110, 255), pygame.Rect(TOUCH_NOVA_C[0] - TOUCH_NOVA_R, TOUCH_NOVA_C[1] - TOUCH_NOVA_R, TOUCH_NOVA_R * 2, TOUCH_NOVA_R * 2),
                             math.pi / 2, math.pi / 2 + ready * 2 * math.pi, 7)
         canvas.blit(ui, (0, 0))
         for text, sub, center in (("BITE", "hold", TOUCH_FIRE_C), ("FURY", "tap" if p1.special_timer == 0 else "charging", TOUCH_NOVA_C)):
@@ -2240,28 +2799,25 @@ async def main():
             canvas.blit(t, t.get_rect(center=(center[0], center[1] - 6)))
             s = font_touch_small.render(sub, True, (255, 235, 235))
             canvas.blit(s, s.get_rect(center=(center[0], center[1] + t.get_height() // 2 + 4)))
-        mv = font_touch_small.render("MOVE", True, (180, 255, 245))
+        mv = font_touch_small.render("MOVE", True, (225, 215, 185))
         canvas.blit(mv, mv.get_rect(center=(base[0], base[1] + TOUCH_STICK_R + 16)))
         draw_small_touch_buttons()
 
     def draw_small_touch_buttons():
         # Small tap buttons next to the level bar
         for rect, label in ((TOUCH_MODE_BTN, "MODE"), (TOUCH_HELP_BTN, "HELP"), (TOUCH_MUTE_BTN, "UNMUTE" if audio_muted else "MUTE")):
-            pygame.draw.rect(canvas, (30, 40, 70), rect, border_radius=4)
-            pygame.draw.rect(canvas, (0, 229, 212), rect, 1, border_radius=4)
-            t = font_hud_sm.render(label, True, (230, 255, 250))
+            pygame.draw.rect(canvas, (72, 52, 32), rect, border_radius=4)
+            pygame.draw.rect(canvas, (200, 185, 140), rect, 1, border_radius=4)
+            t = font_hud_sm.render(label, True, (235, 225, 200))
             canvas.blit(t, t.get_rect(center=rect.center))
 
     running = True
     while running:
         current_level = level_state["level"]
 
-        # Mode or level tier changed: pre-build attack tunes so the first shot doesn't stutter
-        wanted_key = (game_mode, sound_tier(current_level))
-        if wanted_key != tune_key:
-            tune_key = wanted_key
-            for tool in ATTACK_TUNES:
-                get_attack_sfx(tool, game_mode, current_level)
+        # Build the natural sounds one per frame, so the first bite or call never stutters
+        if sound_warmup:
+            natural_sfx(sound_warmup.pop(0))
 
         for event in pygame.event.get():
             # Touch screens also send fake mouse clicks for every finger; the finger events handle touch
@@ -2705,11 +3261,14 @@ async def main():
         for k in range(min(len(reserve), len(free_holes))):      # the rest of the pack, waiting in holes
             draw_peeking_snake(canvas, free_holes[k], world_t["t"], k)
         live = [p for p in players if p.hp > 0]
-        onlooker_life(onlookers, kinds_now, jungle_rnd, onlooker_clock, (live[0].x, live[0].y) if live else None)
+        for p in live:                                            # fur bristles up when a viper is close or rears up
+            p.fluff_target = 1.0 if any(v.strike_t > 0 or math.hypot(v.x - p.x, v.y - p.y) < STRIKE_RANGE + 40 for v in vipers) else 0.0
+        threats = [(p.x, p.y) for p in live] + [(v.x, v.y) for v in vipers] + [(m.body.x, m.body.y) for m in jungle if m.foe]
+        onlooker_life(onlookers, kinds_now, jungle_rnd, onlooker_clock, (live[0].x, live[0].y) if live else None, threats, animal_call)
         for a in sorted(onlookers, key=lambda a: a.y):            # the jungle's other animals, watching
             a.draw(canvas)
         busy_holes = busy + [s.v.hole for s in wild_snakes if s.v.hole]
-        jungle_life(jungle, wild_snakes, wild_fx, particles, jungle_rnd, wild_clock, busy_holes)
+        jungle_life(jungle, wild_snakes, wild_fx, particles, jungle_rnd, wild_clock, busy_holes, animal_call)
         for s in wild_snakes:                                     # wild snakes and mongooses, living on their own
             s.draw(canvas)
         for jm in jungle:
@@ -2731,11 +3290,54 @@ async def main():
             if p.hp > 0:
                 p.draw(canvas)
 
+        # Trees and bushes in front (animals pass behind them), swaying a little
+        for surf, (fx, fy), ph, amp in foliage:
+            canvas.blit(surf, (fx + math.sin(world_t["t"] * 0.025 + ph) * amp, fy))
+        for fl in flutters:                                       # butterflies and dragonflies
+            fl.update()
+            fl.draw(canvas)
+        if jungle_rnd.random() < 0.012 and len(leaves) < 6:
+            leaves.append(FallingLeaf(jungle_rnd))
+        for lf in leaves[:]:
+            lf.update()
+            lf.draw(canvas)
+            if lf.life <= 0:
+                leaves.remove(lf)
+        flock_clock["t"] -= 1
+        if flock_clock["t"] <= 0:
+            flock_clock["t"] = jungle_rnd.randint(1200, 2400)
+            flocks.append(BirdFlock(jungle_rnd))
+            animal_call(flocks[-1].kind, True)
+        for fl in flocks[:]:
+            fl.update()
+            fl.draw(canvas)
+            if fl.gone():
+                flocks.remove(fl)
+
+        # Time of day: the light changes with the level, morning to dusk
+        if tod_state["level"] != current_level:
+            tod_state["level"] = current_level
+            tod_state["name"], tint = time_of_day(current_level)
+            tod_layer.fill(tint if tint else (0, 0, 0, 0))
+        if tod_state["name"] != "NOON":
+            canvas.blit(tod_layer, (0, 0))
+        if tod_state["name"] == "DUSK":                           # fireflies at dusk
+            for k, (fx, fy, ph) in enumerate(fireflies):
+                tt = world_t["t"] * 0.02 + ph
+                glow = math.sin(world_t["t"] * 0.08 + ph * 3)
+                if glow > 0.2:
+                    x, y = fx + math.sin(tt * 1.3) * 30, fy + math.cos(tt) * 18
+                    pygame.draw.circle(canvas, (120, 140, 40), (int(x), int(y)), 4)
+                    pygame.draw.circle(canvas, (230, 255, 120), (int(x), int(y)), 2)
+
         if not game_over and not touch["on"]:
             mx, my = pygame.mouse.get_pos()
             pygame.draw.circle(canvas, (235, 225, 195), (mx, my), 7, 1)
             pygame.draw.line(canvas, (235, 225, 195), (mx - 10, my), (mx - 4, my), 1)
             pygame.draw.line(canvas, (235, 225, 195), (mx + 4, my), (mx + 10, my), 1)
+
+        canvas.blit(hud_top, (0, 0))          # soft dark strips so the text reads on the ground
+        canvas.blit(hud_bottom, (0, HEIGHT - 92))
 
         # --- HUD: identical stat panels for squirrel(s) and viper(s) ---
         def draw_panel(x, y, label, unit, hp_color):
@@ -2743,29 +3345,29 @@ async def main():
             pygame.draw.rect(canvas, hp_color, (x, y, int(200 * max(0.0, unit.hp / unit.max_hp)), 12))
             pygame.draw.rect(canvas, (220, 220, 220), (x, y, 200, 12), 1)
             canvas.blit(font_hud_sm.render(f"{label} HP {unit.hp}/{unit.max_hp}", True, (255, 240, 240)), (x + 5, y))
-            pygame.draw.rect(canvas, (15, 25, 40), (x, y + 16, 200, 10))
-            pygame.draw.rect(canvas, (0, 215, 255), (x, y + 16, int(200 * max(0.0, unit.defense / unit.max_defense)), 10))
-            pygame.draw.rect(canvas, (180, 240, 255), (x, y + 16, 200, 10), 1)
-            canvas.blit(font_hud_sm.render(f"DEF {unit.defense}/{unit.max_defense}", True, (210, 255, 255)), (x + 5, y + 15))
+            pygame.draw.rect(canvas, (30, 28, 20), (x, y + 16, 200, 10))
+            pygame.draw.rect(canvas, (160, 175, 130), (x, y + 16, int(200 * max(0.0, unit.defense / unit.max_defense)), 10))
+            pygame.draw.rect(canvas, (200, 210, 170), (x, y + 16, 200, 10), 1)
+            canvas.blit(font_hud_sm.render(f"DEF {unit.defense}/{unit.max_defense}", True, (225, 230, 200)), (x + 5, y + 15))
             ready = 1.0 - (unit.special_timer / unit.special_cd)
             pygame.draw.rect(canvas, (25, 30, 20), (x, y + 30, 200, 8))
-            pygame.draw.rect(canvas, (0, 255, 170) if unit.special_timer == 0 else (120, 160, 90), (x, y + 30, int(200 * ready), 8))
+            pygame.draw.rect(canvas, (150, 200, 90) if unit.special_timer == 0 else (120, 160, 90), (x, y + 30, int(200 * ready), 8))
             atk_txt = f"ATK {unit.power()}  POWER UP {unit.boost_timer // 60 + 1}s" if unit.boost_timer > 0 else f"ATK {unit.attack_power}"
-            canvas.blit(font_hud_sm.render(atk_txt, True, (255, 240, 120) if unit.boost_timer > 0 else (255, 205, 50)), (x + 5, y + 40))
+            canvas.blit(font_hud_sm.render(atk_txt, True, (240, 220, 150) if unit.boost_timer > 0 else (235, 190, 110)), (x + 5, y + 40))
 
         edge_tag = lambda u: " +10%" if getattr(u, "human_edge", False) else ""
         for i, p in enumerate(players):
             who = "AI MONGOOSE" if p.is_ai else f"MONGOOSE P{p.player_id}"
-            draw_panel(25, 20 + i * 60, f"{who} x{p.power_mult}{edge_tag(p)}", p, (255, 110, 60) if p.player_id == 1 else (90, 170, 255))
+            draw_panel(25, 20 + i * 60, f"{who} x{p.power_mult}{edge_tag(p)}", p, (205, 100, 55) if p.player_id == 1 else (210, 160, 80))
         shown = sorted(vipers, key=lambda v: (not v.is_player_controlled, v.controller or 9))[:2]
         for i, v in enumerate(shown):
             who = f"VIPER (P{v.controller})" if v.controller else "VIPER AI"
-            draw_panel(WIDTH - 225, 20 + i * 60, who + edge_tag(v), v, (80, 220, 110))
+            draw_panel(WIDTH - 225, 20 + i * 60, who + edge_tag(v), v, (120, 165, 75))
         if len(vipers) > 2:
-            more = font_hud_sm.render(f"+ {len(vipers) - 2} more vipers in the pack", True, (160, 230, 170))
+            more = font_hud_sm.render(f"+ {len(vipers) - 2} more vipers in the pack", True, (190, 210, 160))
             canvas.blit(more, (WIDTH - 225, 20 + 2 * 60))
 
-        top = font_hud.render(f"LEVEL {current_level}  |  MODE {game_mode}: {MODE_NAMES[game_mode]}  [T: SWITCH]", True, (255, 205, 50))
+        top = font_hud.render(f"LEVEL {current_level} ({tod_state['name']})  |  MODE {game_mode}: {MODE_NAMES[game_mode]}  [T: SWITCH]", True, (235, 190, 110))
         canvas.blit(top, top.get_rect(center=(WIDTH // 2, 22)))
         if game_mode == 3:
             sc = font_hud.render(f"ROUNDS  MONGOOSE {pvp_wins['mongoose']} - {pvp_wins['viper']} VIPER", True, (230, 230, 230))
@@ -2779,7 +3381,7 @@ async def main():
         s_now = level_stats(current_level)
         pack_now = pack_size(current_level, len(players))
         pw = font_hud.render(f"VIPERS: {len(vipers)}   |   PACK: {pack_now} VIPER{'S' if pack_now > 1 else ''} PER MONGOOSE   |   MONGOOSE POWER x{pack_now}",
-                             True, (80, 255, 120))
+                             True, (170, 205, 110))
         canvas.blit(pw, pw.get_rect(center=(WIDTH // 2, 62)))
         e = HUMAN_EDGE
         sq_hp, sq_def, sq_atk = (s_now[k] * pack_now for k in ("max_hp", "max_defense", "attack_power"))
@@ -2795,15 +3397,15 @@ async def main():
         else:
             txt2 = (f"EACH VIPER: HP {vp_hp}  DEF {vp_def}  ATK {vp_atk}      =      "
                     f"MONGOOSE x{pack_now}: HP {sq_hp}  DEF {sq_def}  ATK {sq_atk}")
-            txt3, col3 = "PLAYER vs PLAYER: EQUAL POWER FOR BOTH SIDES", (150, 220, 255)
-        pw2 = font_hud_sm.render(txt2, True, (170, 255, 190))
+            txt3, col3 = "PLAYER vs PLAYER: EQUAL POWER FOR BOTH SIDES", (215, 200, 160)
+        pw2 = font_hud_sm.render(txt2, True, (205, 220, 175))
         canvas.blit(pw2, pw2.get_rect(center=(WIDTH // 2, 80)))
         pw3 = font_hud_sm.render(txt3, True, col3)
         canvas.blit(pw3, pw3.get_rect(center=(WIDTH // 2, 96)))
 
         if banner["timer"] > 0:
             banner["timer"] -= 1
-            b = font_hud.render(banner["text"], True, (255, 230, 90))
+            b = font_hud.render(banner["text"], True, (240, 215, 150))
             canvas.blit(b, b.get_rect(center=(WIDTH // 2, 118)))
 
         draw_level_bar(current_level)
@@ -2819,20 +3421,20 @@ async def main():
             controls += f" [PAD: {len(pads)} CONNECTED]"
         if touch["on"]:
             controls = "[TOUCH: drag left side = move | hold BITE (auto-aim) | FURY = special | tap LV to jump level]"
-        canvas.blit(font_hud.render(controls, True, (0, 215, 255)), (25, HEIGHT - 35))
-        ver = font_hud_sm.render(f"{GAME_NAME} {GAME_VERSION}", True, (120, 130, 160))
+        canvas.blit(font_hud.render(controls, True, (160, 175, 130)), (25, HEIGHT - 35))
+        ver = font_hud_sm.render(f"{GAME_NAME} {GAME_VERSION}", True, (150, 135, 110))
         canvas.blit(ver, (WIDTH - ver.get_width() - 12, HEIGHT - 20))
 
         if game_over:
             overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-            overlay.fill((8, 10, 22, 215))
+            overlay.fill((25, 18, 10, 215))
             canvas.blit(overlay, (0, 0))
-            txt_over = font_big.render("MISSION FAILED", True, (255, 60, 80))
+            txt_over = font_big.render("FALLEN IN THE JUNGLE", True, (215, 90, 60))
             if game_mode in (4, 5):
                 txt_stats = font_hud.render(f"LEVEL {current_level} | YOUR VIPER PACK WAS BEATEN | VIPER TEAM SCORE: {viper_team['score']}", True, (220, 220, 220))
             else:
                 txt_stats = font_hud.render(f"LEVEL {current_level} | SCORE: {players[0].score} | BEST: {high_score}", True, (220, 220, 220))
-            txt_restart = font_hud.render("PRESS [R] TO RESTART  |  PRESS [1-9]/[0] OR CLICK A LEVEL BELOW TO WARP", True, (0, 255, 220))
+            txt_restart = font_hud.render("PRESS [R] TO RESTART  |  PRESS [1-9]/[0] OR CLICK A LEVEL BELOW TO WARP", True, (190, 215, 140))
             canvas.blit(txt_over, txt_over.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 35)))
             canvas.blit(txt_stats, txt_stats.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 15)))
             canvas.blit(txt_restart, txt_restart.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 55)))
