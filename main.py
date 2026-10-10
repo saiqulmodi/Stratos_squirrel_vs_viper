@@ -449,6 +449,53 @@ def _chain(points, r0, r1, step=6):
     return out
 
 
+def make_ground():
+    """The arena is real ground (user, 2026-10-10): dry earth with soil patches, cracks, pebbles,
+    grass tufts and dry leaves. Drawn once (fixed seed, same every game) and blitted every frame."""
+    rnd = random.Random(7)
+    g = pygame.Surface((WIDTH, HEIGHT))
+    g.fill((62, 49, 34))
+    patches = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    for _ in range(140):                                         # darker and lighter soil patches
+        w, h = rnd.randint(60, 260), rnd.randint(30, 140)
+        col = rnd.choice([(48, 37, 25, 60), (82, 66, 45, 50), (72, 60, 40, 45), (40, 32, 22, 55)])
+        pygame.draw.ellipse(patches, col, (rnd.randint(-80, WIDTH), rnd.randint(-60, HEIGHT), w, h))
+    g.blit(patches, (0, 0))
+    for _ in range(2600):                                        # fine grains of dirt
+        c = rnd.randint(-14, 14)
+        g.set_at((rnd.randrange(WIDTH), rnd.randrange(HEIGHT)), (62 + c, 49 + c, 34 + c))
+    for _ in range(14):                                          # cracks in the dry earth
+        x, y = rnd.randint(0, WIDTH), rnd.randint(0, HEIGHT)
+        ang = rnd.uniform(0, math.tau)
+        pts = [(x, y)]
+        for _ in range(rnd.randint(4, 8)):
+            ang += rnd.uniform(-0.8, 0.8)
+            x += math.cos(ang) * rnd.randint(10, 26)
+            y += math.sin(ang) * rnd.randint(10, 26)
+            pts.append((x, y))
+        pygame.draw.lines(g, (38, 29, 19), False, pts, 2)
+    for _ in range(170):                                         # pebbles with a lit top edge
+        x, y, r = rnd.randint(0, WIDTH), rnd.randint(0, HEIGHT), rnd.randint(2, 6)
+        shade = rnd.randint(90, 135)
+        pygame.draw.ellipse(g, (30, 24, 16), (x - r + 1, y - r // 2 + 2, r * 2, r + 2))
+        pygame.draw.ellipse(g, (shade, shade - 8, shade - 20), (x - r, y - r // 2, r * 2, r + 1))
+        pygame.draw.line(g, (shade + 40, shade + 32, shade + 18), (x - r // 2, y - r // 2 + 1), (x + r // 3, y - r // 2 + 1), 1)
+    for _ in range(95):                                          # tufts of grass
+        x, y = rnd.randint(0, WIDTH), rnd.randint(0, HEIGHT)
+        for _ in range(rnd.randint(5, 11)):
+            ang = -math.pi / 2 + rnd.uniform(-0.9, 0.9)
+            ln = rnd.randint(6, 16)
+            col = rnd.choice([(92, 112, 46), (118, 128, 58), (140, 132, 70), (76, 96, 40)])
+            bx = x + rnd.randint(-5, 5)
+            pygame.draw.line(g, col, (bx, y), (bx + math.cos(ang) * ln, y + math.sin(ang) * ln), 2)
+    for _ in range(30):                                          # dry leaves
+        x, y = rnd.randint(0, WIDTH), rnd.randint(0, HEIGHT)
+        col = rnd.choice([(128, 84, 38), (150, 108, 50), (106, 70, 34)])
+        pygame.draw.ellipse(g, col, (x, y, rnd.randint(8, 13), rnd.randint(4, 6)))
+        pygame.draw.line(g, (70, 46, 22), (x + 1, y + 2), (x + 10, y + 3), 1)
+    return g
+
+
 def make_backdrop():
     """Faint neon mongoose and viper facing off behind the arena (user, 2026-10-09).
     Drawn once onto a see-through surface and blitted under the grid every frame."""
@@ -707,6 +754,9 @@ class SquirrelPlayer(Fighter):
         stride = math.sin(self.anim_t * 2.4) if moving else 0.0
         wave = math.sin(self.anim_t * 1.3)
         jaw = 6 if self.shot_timer > self.shot_cd - 5 else 2      # mouth snaps wide open on every shot
+
+        oval((34, 26, 17), -6, 27, 150, 12)                        # shadow on the ground
+        oval((34, 26, 17), -70, 14, 50, 8)
 
         # Tail: long and tapering, fur puffed up the way a mongoose fluffs it against a snake
         tail = _chain([(-34, -2), (-52, wave * 2), (-68, 4 + wave * 4), (-84, 2 + wave * 6), (-98, -2 + wave * 7)], 14, 5, step=4)
@@ -986,6 +1036,8 @@ class ViperEnemy(Fighter):
                 path.append((prev[0] + (px - prev[0]) * a, prev[1] + (py - prev[1]) * a, prev[2] + (t - prev[2]) * a))
             prev = (px, py, t)
 
+        for x, y, t in path[::2]:                                  # shadow on the ground
+            pygame.draw.circle(surface, (34, 26, 17), (int(x + 3), int(y + 5)), int(self.body_radius(t) + 2))
         for x, y, t in path:
             pygame.draw.circle(surface, pal["outline"], (int(x), int(y)), int(self.body_radius(t) + 2))
         for x, y, t in reversed(path):
@@ -1098,6 +1150,7 @@ async def main():
     fit_clock = 0
     pygame.display.set_caption(GAME_NAME)
     canvas = pygame.Surface((WIDTH, HEIGHT))
+    ground = make_ground()
     backdrop = make_backdrop()
     clock = pygame.time.Clock()
 
@@ -2095,13 +2148,8 @@ async def main():
 
         # ---------------- RENDER ----------------
         current_level = level_state["level"]
-        canvas.fill((9, 12, 22))
+        canvas.blit(ground, (0, 0))          # all play is on the ground (user, 2026-10-10)
         canvas.blit(backdrop, (0, 0))
-
-        for gx in range(0, WIDTH, 80):
-            pygame.draw.line(canvas, (18, 25, 42), (gx, 0), (gx, HEIGHT), 1)
-        for gy in range(0, HEIGHT, 80):
-            pygame.draw.line(canvas, (18, 25, 42), (0, gy), (WIDTH, gy), 1)
 
         for s in shards:
             s.draw(canvas)
