@@ -268,6 +268,23 @@ def snd_hiss(dur, seed, cut=0.55, attack=0.01, curve=1.5, pulses=0):
     return out
 
 
+def snd_snake_hiss(dur, seed, attack=0.04, pulses=0, hi=0.35, flutter=23.0):
+    """A real snake hiss: airy breath noise (about 1.5-7 kHz), quick rise, steady, then fades out;
+    pulses > 0 gives separate hisses (huh-sss, huh-sss)."""
+    n = int(SFX_RATE * dur)
+    nz = _noise(n, seed)
+    band = _lowpass([x - l for x, l in zip(nz, _lowpass(nz, hi))], 0.87)
+    out = []
+    for i, v in enumerate(band):
+        t = i / SFX_RATE
+        g = min(1.0, t / attack) * (1.0 if t < dur * 0.55 else max(0.0, (dur - t) / (dur * 0.45)) ** 1.4)
+        g *= 1.0 + 0.12 * math.sin(math.tau * flutter * t)                         # breathy flutter
+        if pulses:
+            g *= abs(math.sin(math.pi * pulses * t / dur)) ** 0.6
+        out.append(v * g)
+    return out
+
+
 def snd_snap(seed):
     n = int(SFX_RATE * 0.035)
     nz = _noise(n, seed)
@@ -319,9 +336,10 @@ NATURAL_BUILDERS = {
     "bite2": lambda: _mix((0.0, snd_snap(21), 1.0), (0.012, snd_growl(0.22, 128, 22), 0.7)),
     "fury1": lambda: _mix((0.0, snd_growl(0.34, 95, 31), 0.8), *[(s, snd_snap(32 + k), 0.9) for k, s in enumerate((0.02, 0.09, 0.15, 0.22, 0.29))]),
     "fury2": lambda: _mix((0.0, snd_growl(0.34, 116, 41), 0.8), *[(s, snd_snap(42 + k), 0.9) for k, s in enumerate((0.03, 0.08, 0.16, 0.21, 0.28))]),
-    "spit": lambda: _mix((0.0, snd_hiss(0.16, 51, cut=0.6, attack=0.004, curve=2.2), 1.0), (0.0, snd_drum(140, 0.05), 0.4)),
-    "spray": lambda: snd_hiss(0.34, 61, cut=0.55, attack=0.01, curve=1.0, pulses=3),
-    "strike": lambda: _mix((0.0, snd_hiss(0.33, 71, cut=0.5, attack=0.004, curve=1.2), 1.0), (0.0, snd_drum(95, 0.1), 0.5)),
+    # every snake sound is a real hiss (user, 2026-10-10)
+    "spit": lambda: snd_snake_hiss(0.2, 51, attack=0.008, hi=0.45, flutter=31.0),           # short sharp "tsss"
+    "spray": lambda: snd_snake_hiss(0.34, 61, attack=0.02, pulses=3, hi=0.4),                # "hss-hss-hss"
+    "strike": lambda: snd_snake_hiss(0.34, 71, attack=0.012, hi=0.3),                       # loud "HHHSSSS" as it lunges
     # animal calls
     "peacock": lambda: _mix(
         (0.0, snd_tone(0.24, _glide(640, 900, 0.2), [(1, 1.0), (3, 0.5), (5, 0.3), (7, 0.15)], vib=0.02, attack=0.02), 1.0),
@@ -329,7 +347,7 @@ NATURAL_BUILDERS = {
     "deer_bark": lambda: snd_tone(0.2, _glide(1150, 720, 0.18), [(1, 1.0), (2, 0.45), (3, 0.25), (4, 0.1)], seed=81, attack=0.006, curve=2.0, breath=0.4),
     "boar_grunt": lambda: _mix(*[(s, [v * abs(math.sin(math.pi * 72 * i / SFX_RATE)) ** 3 * _env(i / SFX_RATE, 0.015, 0.13, 1.5) + 0.4 * math.sin(TWO_PI * 85 * i / SFX_RATE) * _env(i / SFX_RATE, 0.015, 0.13, 1.5)
                                      for i, v in enumerate(_lowpass(_noise(int(SFX_RATE * 0.13), 91 + k), 0.08))], 1.0) for k, s in enumerate((0.0, 0.2, 0.37))]),
-    "lizard_hiss": lambda: snd_hiss(0.7, 101, cut=0.35, attack=0.05, curve=1.0, pulses=2),
+    "lizard_hiss": lambda: snd_snake_hiss(0.7, 101, attack=0.06, hi=0.3, flutter=17.0),     # long warning hiss (wild snakes use it too)
     "tortoise_huff": lambda: [v * 3.0 * _env(i / SFX_RATE, 0.12, 0.45, 1.0) for i, v in enumerate(_lowpass(_noise(int(SFX_RATE * 0.45), 111), 0.05))],
     "hare_thump": lambda: _mix((0.0, snd_drum(72), 1.0), (0.16, snd_drum(68), 1.0)),
     "mongoose_chatter": lambda: _mix(*[(k * 0.05, snd_tone(0.028, (lambda f: (lambda t: f))(2300 + 180 * math.sin(k * 1.7)), [(1, 1.0), (2, 0.4)], attack=0.002, curve=2.0), 1.0) for k in range(9)]),
@@ -651,9 +669,9 @@ STRIKE_HOLD = 3           # frames at full reach
 STRIKE_FRAMES = 24        # stand 10, shoot 3, hold 3, pull back 8 (0.4 s)
 STRIKE_HIT_RADIUS = 34    # bite hit size around the striking head (the mongoose is drawn bigger now)
 STRIKE_HEAD_SCALE = 1.7   # head size at full reach
-COIL_RADIUS = 30.0        # facing a mongoose the cobra coils its body (user's picture): coil radius...
-COIL_TURNS = 2.3          # ...turns of the coil...
-COIL_RISE = 22.0          # ...and how high the front of the body is raised off the ground
+COIL_RADIUS = 46.0        # facing a mongoose the cobra coils its body (user's picture): coil radius...
+COIL_TURNS = 1.8          # ...turns of the coil...
+COIL_RISE = 30.0          # ...and how high the front of the body is raised off the ground
 
 # Natural fighting (user, 2026-10-10): no lasers or Nova rings. The mongoose leaps and bites,
 # its special is a Fury of bites all around; vipers strike, spit venom drops or spray venom.
@@ -679,8 +697,10 @@ HOLES = make_holes()
 # Look of the fighters (drawing only, never changes hit sizes or balance)
 MONGOOSE_SCALE = 1.2            # the fighting mongoose (user, 2026-10-10: 1.6 -> 1.9, then smaller again: "very big compared to the ground")
 MONGOOSE_ORIGIN = 30            # its centre (hit point) is at the shoulders, so the head is where the fight is
-MONGOOSE_GIRTH = 0.0625         # slim: body depth 1/4 of before, twice over (user, 2026-10-10), same length
-MONGOOSE_HEAD = 0.4             # head kept big enough to see its face
+MONGOOSE_GIRTH = 0.5            # fighting mongoose: full, clearly visible body like the user's picture (user, 2026-10-10: "got so small it is not visible")
+MONGOOSE_HEAD = 0.8             # ...with a head to match
+BABY_MONGOOSE_GIRTH = 0.0625    # the wild babies stay exactly as they were (user: "keep as it is")
+BABY_MONGOOSE_HEAD = 0.4
 JUNGLE_MONGOOSE_SCALE = 0.5     # the wild mongooses are babies (user, 2026-10-10: "like children, very small")
 JUNGLE_MONGOOSES = 3
 JUNGLE_SNAKES = 2               # wild vipers roaming the jungle on their own
@@ -693,9 +713,10 @@ ONLOOKER_SIZE = 0.65            # ...and smaller (user, 2026-10-10: "still bigge
 ONLOOKER_ROTATE_FRAMES = 1800   # ...and every 30 s one kind wanders off and a different kind comes in
 FLEE_RANGE = 170                # an onlooker runs from a fight that comes this close
 VIPER_SCALE = 1.0               # fighting king cobras (user, 2026-10-10: 1.6 -> 1.35 -> 1.0, "very big compared to the ground")...
-SNAKE_GIRTH = 0.0625            # slim: 1/4 as thick as before, twice over (user, 2026-10-10), same length
+SNAKE_GIRTH = 0.4               # fighting cobras: a full, round body like the user's picture (user, 2026-10-10: "snakes got very thin")
 SNAKE_SPOTS = ((15, 15, 15), (215, 35, 35), (240, 205, 40), (45, 165, 60))   # black, red, yellow, green (user, 2026-10-10)
-SNAKE_HEAD = 0.4                # head kept big enough to see the hood; still wider than the neck
+SNAKE_HEAD = 0.75               # head and hood in proportion to the fuller body
+BABY_SNAKE_HEAD = 0.4           # baby snakes keep their old head
 VIPER_SEGMENTS = 36             # ...body length (24 -> 36 -> 56, back to 36 when the user found it too heavy)
 MONGOOSE_COLORS = {                 # fur, dark fur, belly, tail tip - bright but natural (user, 2026-10-10: "colourful")
     1: ((128, 121, 106), (74, 67, 56), (172, 163, 144), (36, 31, 26)),      # grey, grizzled (user's picture)
@@ -879,6 +900,14 @@ class SquirrelPlayer(Fighter):
     def airborne(self):
         return self.jump_t > 0
 
+    def head_point(self):
+        """Centre of the mongoose's head on screen (same geometry as draw())."""
+        S = getattr(self, "scale", MONGOOSE_SCALE)
+        G, HG = getattr(self, "girth", MONGOOSE_GIRTH), getattr(self, "head", MONGOOSE_HEAD)
+        f = 1 if self.facing_right else -1
+        return (self.x + (46 + 8 * HG - MONGOOSE_ORIGIN) * S * f,
+                self.y - self.lift() + (-15 * G - 3) * S)
+
     def lift(self):
         """Height above the ground right now (px)."""
         if self.jump_t <= 0:
@@ -983,7 +1012,7 @@ class SquirrelPlayer(Fighter):
 
         # Slim build (user, 2026-10-10: "very fatty - reduce to 1/4, keep length same"): body and tail
         # are MONGOOSE_GIRTH as deep as before at the same length; the head is MONGOOSE_HEAD of its old size.
-        G, HG = MONGOOSE_GIRTH, MONGOOSE_HEAD
+        G, HG = getattr(self, "girth", MONGOOSE_GIRTH), getattr(self, "head", MONGOOSE_HEAD)
         B = 15 * G                                                  # half the body's depth
         yt = B * 0.5                                                # where the legs join the body
         shadow = pygame.Rect(0, 0, int(150 * S * (1 - lift / (JUMP_HEIGHT * 2.5))), max(2, int(4 * S)))
@@ -996,8 +1025,9 @@ class SquirrelPlayer(Fighter):
         tw = 0.3 if lift else 1.0
         tail = [(-38, -0.5), (-50, wave * 1.0 * tw), (-62, 1.5 * tw + wave * 2.0 * tw), (-74, tw + wave * 3.0 * tw), (-84, -0.5 + wave * 3.5 * tw)]
         pts = [at(*p) for p in tail]
-        pygame.draw.line(surface, fur, pts[0], pts[1], 2 if fluff > 0.5 or S >= 1.0 else 1)
-        pygame.draw.lines(surface, fur, False, pts[1:4], 1)
+        root = max(2 if fluff > 0.5 or S >= 1.0 else 1, round(B * S / 4))        # tail stays 1/8 of the body's width
+        pygame.draw.line(surface, fur, pts[0], pts[1], root)
+        pygame.draw.lines(surface, fur, False, pts[1:4], max(1, round(B * S / 6)))
         pygame.draw.line(surface, tip, pts[3], pts[4], 1)
         for k in (range(1, 4) if fluff > 0.2 and detail else ()):         # a few tail hairs only when it bristles
             hx, hy = pts[k]
@@ -1008,10 +1038,11 @@ class SquirrelPlayer(Fighter):
             if pounce:                                                        # front legs reach out, hind legs kick back
                 sw = 11 if hx > 0 else -9
             knee, foot = (hx + sw * 0.4, yt + 6), (hx + sw, yt + (8 if pounce and hx > 0 else 12))   # short legs, like a real mongoose
-            line(outline, (hx, yt), knee, 2.4)                               # slim legs, never thicker than the body
-            line(outline, knee, foot, 2.0)
-            line(col, (hx, yt), knee, 1.4)
-            line(col, knee, foot, 1.1)
+            lw = max(1.0, G * 4)                                             # legs as sturdy as the body allows
+            line(outline, (hx, yt), knee, 2.4 * lw)
+            line(outline, knee, foot, 2.0 * lw)
+            line(col, (hx, yt), knee, 1.4 * lw)
+            line(col, knee, foot, 1.1 * lw)
             oval(outline, foot[0] + 1.5, foot[1], 5, 2.5)
             if pounce and hx > 0:                                            # claws spread wide, reaching for the snake
                 for c in (-1.6, 0, 1.6):
@@ -1096,6 +1127,7 @@ class JungleMongoose:
     def __init__(self, rnd):
         self.body = SquirrelPlayer(rnd.uniform(80, WIDTH - 80), rnd.uniform(150, HEIGHT - 110), player_id=rnd.choice((1, 2)))
         self.body.scale = JUNGLE_MONGOOSE_SCALE
+        self.body.girth, self.body.head = BABY_MONGOOSE_GIRTH, BABY_MONGOOSE_HEAD
         self.body.anim_t = rnd.uniform(0, 6)
         self.rnd = rnd
         self.hidden = False          # down a burrow: not drawn
@@ -1142,7 +1174,8 @@ class JungleSnake:
         self.v = ViperEnemy(level=1, spawn=hole, hole=hole)
         self.v.scale = JUNGLE_SNAKE_SCALE
         self.v.num_segments = 32
-        self.v.girth = 0.125            # babies: as thin-looking as the adults (they are half the size)
+        self.v.girth = 0.125            # babies: unchanged (user: keep the wild babies as they are)
+        self.v.head = BABY_SNAKE_HEAD
         self.rnd = rnd
         self.hidden = False
         self.spot = None
@@ -2178,11 +2211,23 @@ class ViperEnemy(Fighter):
         if self.hole and math.hypot(self.history[-1][0] - self.hole[0], self.history[-1][1] - self.hole[1]) > 30:
             self.hole = None       # the whole snake is out of its hole
 
-    def start_strike(self, tx, ty):
+    def rise(self):
+        """How high the front of the body is raised off the coil right now (px)."""
+        return COIL_RISE * getattr(self, "scale", VIPER_SCALE) * getattr(self, "coil", 0.0)
+
+    def strike_base(self):
+        """Where the strike starts: the raised head, as drawn."""
+        return self.x, self.y - self.rise()
+
+    def start_strike(self, tx, ty, target=None):
         """Head strike at a nearby mongoose (user, 2026-10-10): rear back, shoot the head out
-        STRIKE_REACH px with jaws open, pull back. Same damage and cooldown as a venom spit."""
+        STRIKE_REACH px with jaws open, pull back. Same damage and cooldown as a venom spit.
+        It aims at the mongoose's HEAD and keeps turning to follow it while it rears up
+        (user: "hood hit somewhere else, not aiming at the mongoose head")."""
         self.strike_t = STRIKE_FRAMES
-        self.strike_ang = math.atan2(ty - self.y, tx - self.x)
+        self.strike_target = target
+        bx, by = self.strike_base()
+        self.strike_ang = math.atan2(ty - by, tx - bx)
         self.heading = self.strike_ang
         self.strike_hit = False
 
@@ -2211,13 +2256,20 @@ class ViperEnemy(Fighter):
 
     def strike_tip(self):
         ext = self.strike_extension()
-        return self.x + math.cos(self.strike_ang) * ext, self.y + math.sin(self.strike_ang) * ext
+        bx, by = self.strike_base()
+        return bx + math.cos(self.strike_ang) * ext, by + math.sin(self.strike_ang) * ext
 
     def strike_can_hit(self):
         return self.strike_t > 0 and not self.strike_hit and self.strike_extension() > STRIKE_REACH * 0.35
 
     def tick_strike(self):
         if self.strike_t > 0:
+            t = getattr(self, "strike_target", None)
+            if t is not None and t.hp > 0 and STRIKE_FRAMES - self.strike_t < STRIKE_STAND:   # rearing: keeps its eyes on the head
+                hx, hy = t.head_point()
+                bx, by = self.strike_base()
+                self.strike_ang = math.atan2(hy - by, hx - bx)
+                self.heading = self.strike_ang
             self.strike_t -= 1
 
     def update_ai(self, targets, projectiles_list, spit_fn, burst_fn, shards=()):
@@ -2385,11 +2437,22 @@ class ViperEnemy(Fighter):
         else:
             for x, y, t in path[::2]:                                  # shadow on the ground
                 pygame.draw.circle(surface, (34, 26, 17), (int(x + 2), int(y + 4)), max(2, int(self.body_radius(t) + 1.5)))
-            for x, y, t in path:
-                pygame.draw.circle(surface, pal["outline"], (int(x), int(y)), max(2, int(self.body_radius(t) + 1.5)))
-            for x, y, t in reversed(path):
+            # Joined segments + round joints: one smooth body, no "beads" where it thins toward the tail
+            for k, (x, y, t) in enumerate(path):
+                w = max(2, int(self.body_radius(t) + 1.5))
+                if k:
+                    pygame.draw.line(surface, pal["outline"], path[k - 1][:2], (x, y), 2 * w)
+                pygame.draw.circle(surface, pal["outline"], (int(x), int(y)), w)
+            for k in range(len(path) - 1, -1, -1):
+                x, y, t = path[k]
                 col = pal["tail"] if pal["tail"] and t > 0.8 else pal["body"]
-                pygame.draw.circle(surface, col, (int(x), int(y)), max(1, int(self.body_radius(t))))
+                w = max(1, int(self.body_radius(t)))
+                if k + 1 < len(path):
+                    pygame.draw.line(surface, col, path[k + 1][:2], (x, y), 2 * w)
+                pygame.draw.circle(surface, col, (int(x), int(y)), w)
+            for k in range(3, len(path) - 2, 3):                     # colourful spots: black, red, yellow, green (user)
+                x, y, t = path[k]
+                pygame.draw.circle(surface, SNAKE_SPOTS[(k // 3) % len(SNAKE_SPOTS)], (int(x), int(y)), max(1, int(self.body_radius(t) * 0.35)))
         def frame(idx):
             ax, ay = path[max(0, idx - 2)][:2]
             bx, by = path[min(len(path) - 1, idx + 2)][:2]
@@ -2433,10 +2496,10 @@ class ViperEnemy(Fighter):
         ext = self.strike_extension()
         reach = max(0.0, ext) / STRIKE_REACH
         stand = self.standing()
-        hs = getattr(self, "scale", VIPER_SCALE) * SNAKE_HEAD * max(1.0 + 0.35 * stand, 1.0 + (STRIKE_HEAD_SCALE - 1.0) * reach)   # raised head looks bigger
+        hs = getattr(self, "scale", VIPER_SCALE) * getattr(self, "head", SNAKE_HEAD) * max(1.0 + 0.35 * stand, 1.0 + (STRIKE_HEAD_SCALE - 1.0) * reach)   # raised head looks bigger
         ang = self.strike_ang if self.strike_t > 0 else self.heading
         cu, su = math.cos(ang), math.sin(ang)
-        rise = COIL_RISE * getattr(self, "scale", VIPER_SCALE) * self.coil   # front of the body raised off the coil
+        rise = self.rise()                                                    # front of the body raised off the coil
         hx0, hy0 = self.x + cu * ext, self.y + su * ext - rise
         if rise > 2:                                                          # raised neck, up from the coil
             nw = 4 if self.body_radius(0.0) < 2.5 else max(4, int(self.body_radius(0.0) * 2 + 3))
@@ -2458,7 +2521,7 @@ class ViperEnemy(Fighter):
         if stand > 0 or rise > 2:                                             # shadow under the raised head
             sh = pygame.Rect(0, 0, int(34 * hs), int(18 * hs))
             sh.center = (int(hx0 + 6), int(hy0 + rise + 10 * stand))
-            pygame.draw.ellipse(surface, (8, 8, 14), sh)
+            pygame.draw.ellipse(surface, (40, 30, 20), sh)
 
         def H(u, v):
             u, v = u * hs, v * hs
@@ -2911,7 +2974,7 @@ async def main():
         near = [p for p in players if p.hp > 0 and math.hypot(p.x - v.x, p.y - v.y) < STRIKE_RANGE]
         if near and v.try_shot():
             t = min(near, key=lambda p: math.hypot(p.x - v.x, p.y - v.y))
-            v.start_strike(t.x, t.y)
+            v.start_strike(*t.head_point(), target=t)
             attack_sound("vp_bite")
         elif v.try_shot():
             projectiles.append(Projectile(v.x, v.y, tx, ty, damage=v.power(), color=(200, 215, 70), is_hostile=True, owner=v))
@@ -3595,12 +3658,15 @@ async def main():
             for viper in vipers:
                 if viper.strike_can_hit():
                     hx, hy = viper.strike_tip()
+                    bx, by = viper.strike_base()
                     for ply in players:
                         # the head moves ~55 px a frame, so test the whole neck line, not just the tip
-                        sx, sy = hx - viper.x, hy - viper.y
-                        k = max(0.0, min(1.0, ((ply.x - viper.x) * sx + (ply.y - viper.y) * sy) / (sx * sx + sy * sy or 1.0)))
-                        # a leaping mongoose is NOT safe: the hooded cobra strikes up at it (user, 2026-10-10: "hit from top")
-                        if ply.hp > 0 and math.hypot(viper.x + sx * k - ply.x, viper.y + sy * k - (ply.y - ply.lift())) < STRIKE_HIT_RADIUS:
+                        sx, sy = hx - bx, hy - by
+                        def neck_gap(px, py):
+                            k = max(0.0, min(1.0, ((px - bx) * sx + (py - by) * sy) / (sx * sx + sy * sy or 1.0)))
+                            return math.hypot(bx + sx * k - px, by + sy * k - py)
+                        # a leaping mongoose is NOT safe: the hooded cobra strikes up at it (user: "hit from top")
+                        if ply.hp > 0 and min(neck_gap(*ply.head_point()), neck_gap(ply.x, ply.y - ply.lift())) < STRIKE_HIT_RADIUS:
                             ply.take_damage(viper.power())
                             viper.strike_hit = True
                             shake_intensity = max(shake_intensity, 8)
