@@ -656,7 +656,7 @@ STRIKE_HEAD_SCALE = 1.7   # head size at full reach
 # its special is a Fury of bites all around; vipers strike, spit venom drops or spray venom.
 BITE_LUNGE = 120.0        # how far the mongoose leaps on a bite
 BITE_FRAMES = 8           # leap time
-BITE_REACH = 60.0         # jaws are this far ahead of the mongoose's centre (shoulders)
+BITE_REACH = 40.0         # jaws are this far ahead of the mongoose's centre (shoulders)
 BITE_RADIUS = 40          # bite hits a viper head this close (full damage), body/tail at 3/4 of it (half)
 FURY_RADIUS = 130         # Fury: every viper this close gets bitten
 FURY_FRAMES = 30          # dust cloud time
@@ -664,7 +664,7 @@ HOLE_COUNT = 16           # snake holes in the ground; vipers come out of them
 HOLES = make_holes()
 
 # Look of the fighters (drawing only, never changes hit sizes or balance)
-MONGOOSE_SCALE = 1.9            # the fighting mongoose: big (user, 2026-10-10: made bigger again)
+MONGOOSE_SCALE = 1.2            # the fighting mongoose (user, 2026-10-10: 1.6 -> 1.9, then smaller again: "very big compared to the ground")
 MONGOOSE_ORIGIN = 30            # its centre (hit point) is at the shoulders, so the head is where the fight is
 MONGOOSE_GIRTH = 0.25           # slim: body and tail depth at 1/4 of before, same length (user, 2026-10-10)
 MONGOOSE_HEAD = 0.55            # head in proportion to the slim body
@@ -679,10 +679,10 @@ ONLOOKER_ALPHA = 165            # other animals are drawn softer so the mongoose
 ONLOOKER_SIZE = 0.65            # ...and smaller (user, 2026-10-10: "still bigger animals in display")
 ONLOOKER_ROTATE_FRAMES = 1800   # ...and every 30 s one kind wanders off and a different kind comes in
 FLEE_RANGE = 170                # an onlooker runs from a fight that comes this close
-VIPER_SCALE = 1.35              # fighting king cobras: a little thinner than before (user), big head...
+VIPER_SCALE = 1.0               # fighting king cobras (user, 2026-10-10: 1.6 -> 1.35 -> 1.0, "very big compared to the ground")...
 SNAKE_GIRTH = 0.25              # slim: body and tail 1/4 as thick as before, same length (user, 2026-10-10)
 SNAKE_HEAD = 0.55               # head in proportion: still wider than the neck, like a real cobra
-VIPER_SEGMENTS = 56             # ...and a tail as long as possible (user, 2026-10-10; was 24, then 36)
+VIPER_SEGMENTS = 36             # ...body length (24 -> 36 -> 56, back to 36 when the user found it too heavy)
 MONGOOSE_COLORS = {                 # fur, dark fur, belly, tail tip
     1: ((140, 124, 98), (80, 68, 52), (198, 182, 150), (45, 38, 30)),     # Indian grey mongoose
     2: ((172, 100, 54), (106, 56, 28), (224, 162, 112), (60, 30, 15)),    # ruddy mongoose
@@ -913,8 +913,8 @@ class SquirrelPlayer(Fighter):
         oval((34, 26, 17), -70, yt + 8, 50, 6)
 
         # Tail: long and tapering, fur puffed up the way a mongoose fluffs it against a snake
-        tail = _chain([(-38, -0.5), (-54, wave * 1.2), (-70, 2 + wave * 2.4), (-86, 1 + wave * 3.6), (-100, -1 + wave * 4.2)],
-                      max(3.0, B) * puff, 1.4 * puff, step=3)
+        tail = _chain([(-38, -0.5), (-50, wave * 1.0), (-62, 1.5 + wave * 2.0), (-74, 1 + wave * 3.0), (-84, -0.5 + wave * 3.5)],
+                      max(2.4, B * 0.7) * puff, 0.9 * puff, step=3)       # lighter tail, fine tip
         for (lx, ly), r in tail:
             circ(outline, lx, ly, r + 1.0)
         for k, ((lx, ly), r) in enumerate(tail):
@@ -2217,7 +2217,7 @@ class ViperEnemy(Fighter):
 
     def body_radius(self, t):
         """Real snake shape: thin neck behind a wide head, thick body, tail tapering to a point."""
-        r = 2.5 + 10.5 * (1.0 - t) ** 0.5          # thick almost to the end, short point at the tip
+        r = 2.0 + 11.0 * (1.0 - t)                  # tapers evenly to a thin tail (user: tail looked heavy)
         if t < 0.06:
             r *= 0.8 + t / 0.06 * 0.2
         return r * getattr(self, "scale", VIPER_SCALE) * getattr(self, "girth", SNAKE_GIRTH)
