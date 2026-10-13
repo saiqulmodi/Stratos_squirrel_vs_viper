@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>MODIS MONGOOSE: VENOM STRIKE 3D</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #07060c; font-family: "Segoe UI", Tahoma, sans-serif; color: #f3ead6; user-select: none; -webkit-user-select: none; touch-action: none; }
+  #game { position: fixed; left: 0; top: 0; width: 100%; height: 100%; display: block; }
+  .hidden { display: none !important; }
+
+  /* ---------- HUD ---------- */
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+  .panel { position: absolute; background: linear-gradient(180deg, rgba(12,10,8,.72), rgba(12,10,8,.45)); border: 1px solid rgba(255,214,140,.22); border-radius: 10px; padding: 8px 12px; box-shadow: 0 4px 18px rgba(0,0,0,.45); }
+  #pPanel { left: 14px; top: 14px; width: 270px; }
+  #infoPanel { right: 14px; top: 14px; text-align: right; min-width: 170px; }
+  .name { font-weight: 700; letter-spacing: 1px; font-size: 14px; color: #ffd98a; }
+  .bar { height: 12px; background: rgba(255,255,255,.08); border-radius: 6px; overflow: hidden; margin-top: 5px; position: relative; }
+  .bar > i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px; transition: width .12s linear; }
+  #hpFill { background: linear-gradient(90deg, #c22d1f, #f2a33a); }
+  #agiFill { background: linear-gradient(90deg, #2bc3b4, #8dfcd0); }
+  #hypFill { background: linear-gradient(90deg, #7b3fe4, #e061ff); }
+  .lbl { font-size: 11px; opacity: .75; margin-top: 4px; display: flex; justify-content: space-between; }
+  #venomTag { display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 8px; background: #2f7d1d; color: #dfffbf; font-size: 12px; font-weight: 700; }
+  #hypTag { display: inline-block; margin-top: 6px; margin-left: 4px; padding: 2px 8px; border-radius: 8px; background: #5b2a9e; color: #f1dcff; font-size: 12px; font-weight: 700; }
+  #levelTxt { font-size: 20px; font-weight: 800; color: #ffd98a; letter-spacing: 1px; }
+  #todTxt { font-size: 12px; opacity: .8; }
+  #scoreTxt { font-size: 16px; margin-top: 4px; }
+  #comboTxt { font-size: 15px; color: #ff9b52; font-weight: 700; min-height: 18px; }
+  #hiTxt { font-size: 11px; opacity: .65; }
+  #snakesTxt { font-size: 12px; opacity: .85; margin-top: 2px; }
+
+  #bossPanel { left: 50%; bottom: 96px; transform: translateX(-50%); width: min(460px, 60vw); text-align: center; }
+  #bossName { font-weight: 800; letter-spacing: 2px; color: #ff6b4a; font-size: 14px; }
+  #bossFill { background: linear-gradient(90deg, #6d0f0f, #e4472a, #ffb347); }
+
+  #abilities { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; gap: 8px; }
+  .ab { width: 66px; height: 66px; border-radius: 12px; background: rgba(14,11,8,.7); border: 1px solid rgba(255,214,140,.3); position: relative; overflow: hidden; text-align: center; font-size: 10px; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+  .ab .ic { font-size: 22px; line-height: 24px; }
+  .ab .key { position: absolute; top: 3px; left: 5px; font-size: 10px; color: #ffd98a; font-weight: 700; }
+  .ab .cd { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,.62); }
+  .ab.locked { opacity: .28; }
+  .ab.ready { box-shadow: 0 0 12px rgba(141,252,208,.35) inset; }
+
+  #banner { position: absolute; left: 50%; top: 30%; transform: translate(-50%,-50%); text-align: center; font-weight: 900; letter-spacing: 3px; text-shadow: 0 4px 22px rgba(0,0,0,.9), 0 0 30px rgba(255,170,60,.35); transition: opacity .35s; }
+  #bannerBig { font-size: clamp(28px, 5.4vw, 64px); color: #ffe2a3; }
+  #bannerSmall { font-size: clamp(13px, 1.8vw, 20px); color: #f3ead6; letter-spacing: 2px; margin-top: 6px; font-weight: 600; }
+  #flash { position: absolute; left: 50%; top: 44%; transform: translate(-50%,-50%); font-size: clamp(24px, 4vw, 46px); font-weight: 900; letter-spacing: 4px; color: #8dfcd0; text-shadow: 0 0 22px rgba(80,255,200,.85), 0 3px 10px #000; opacity: 0; transition: opacity .25s; white-space: nowrap; }
+  #vignette { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s; }
+
+  /* ---------- Menus ---------- */
+  .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, rgba(10,6,4,.25), rgba(4,3,6,.82)); z-index: 5; }
+  .card { text-align: center; max-width: 760px; padding: 26px 34px; }
+  .title { font-size: clamp(34px, 6.4vw, 78px); font-weight: 900; letter-spacing: 4px; line-height: 1; background: linear-gradient(180deg, #ffe9b0, #f0a640 55%, #b4521a); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 6px 18px rgba(0,0,0,.8)); }
+  .subtitle { font-size: clamp(16px, 2.6vw, 30px); font-weight: 800; letter-spacing: 10px; color: #8dfcd0; text-shadow: 0 0 18px rgba(80,255,200,.6); margin: 8px 0 22px; }
+  .btn { display: block; width: min(420px, 80vw); margin: 10px auto; padding: 14px 18px; border-radius: 12px; border: 1px solid rgba(255,214,140,.45); background: linear-gradient(180deg, rgba(60,40,20,.85), rgba(25,16,8,.85)); color: #ffe7b8; font-size: 18px; font-weight: 700; letter-spacing: 1px; cursor: pointer; pointer-events: auto; transition: transform .1s, box-shadow .1s; }
+  .btn:hover, .btn.sel { transform: scale(1.03); box-shadow: 0 0 18px rgba(255,180,80,.45); border-color: #ffd98a; }
+  .btn small { display: block; font-size: 12px; font-weight: 500; opacity: .75; margin-top: 3px; letter-spacing: 0; }
+  .hint { font-size: 13px; opacity: .7; margin-top: 14px; }
+  table.keys { margin: 8px auto; border-collapse: collapse; font-size: 14px; text-align: left; }
+  table.keys td { padding: 4px 12px; border-bottom: 1px solid rgba(255,255,255,.08); }
+  table.keys td:first-child { color: #ffd98a; font-weight: 700; white-space: nowrap; }
+  h2 { color: #ffd98a; letter-spacing: 3px; margin: 6px 0 10px; }
+
+  /* ---------- Touch ---------- */
+  #touch { position: fixed; inset: 0; pointer-events: none; z-index: 4; }
+  #stick { position: absolute; left: 26px; bottom: 26px; width: 140px; height: 140px; border-radius: 50%; background: rgba(255,255,255,.07); border: 2px solid rgba(255,214,140,.3); pointer-events: auto; }
+  #knob { position: absolute; left: 45px; top: 45px; width: 50px; height: 50px; border-radius: 50%; background: rgba(255,214,140,.45); }
+  #tbtns { position: absolute; right: 18px; bottom: 18px; display: grid; grid-template-columns: repeat(4, 64px); gap: 10px; pointer-events: auto; }
+  .tb { width: 64px; height: 64px; border-radius: 50%; background: rgba(30,20,10,.6); border: 2px solid rgba(255,214,140,.4); color: #ffe7b8; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; text-align: center; }
+  .tb.big { background: rgba(160,60,20,.6); }
+  #tpause { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); pointer-events: auto; width: 44px; height: 44px; font-size: 18px; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="vignette"></div>
+  <div class="panel" id="pPanel">
+    <div class="name" id="pName">MONGOOSE</div>
+    <div class="bar"><i id="hpFill" style="width:100%"></i></div>
+    <div class="lbl"><span>HEALTH</span><span id="hpTxt">100</span></div>
+    <div class="bar"><i id="agiFill" style="width:100%"></i></div>
+    <div class="lbl"><span>AGILITY</span><span id="agiTxt">100</span></div>
+    <div class="bar" id="hypBar"><i id="hypFill" style="width:0%"></i></div>
+    <div class="lbl" id="hypLbl"><span>HYPNOSIS</span><span></span></div>
+    <span id="venomTag" class="hidden">VENOM</span><span id="hypTag" class="hidden">HYPNOTISED - press DODGE!</span>
+  </div>
+  <div class="panel" id="infoPanel">
+    <div id="levelTxt">LEVEL 1</div>
+    <div id="todTxt">Dusk</div>
+    <div id="scoreTxt">Score 0</div>
+    <div id="comboTxt"></div>
+    <div id="snakesTxt"></div>
+    <div id="hiTxt">Best 0</div>
+  </div>
+  <div class="panel hidden" id="bossPanel">
+    <div id="bossName">KING COBRA</div>
+    <div class="bar" style="height:14px"><i id="bossFill" style="width:100%"></i></div>
+  </div>
+  <div id="abilities"></div>
+  <div id="banner"><div id="bannerBig"></div><div id="bannerSmall"></div></div>
+  <div id="flash"></div>
+</div>
+
+<div id="menu" class="overlay">
+  <div class="card">
+    <div class="title">MODIS MONGOOSE</div>
+    <div class="subtitle">VENOM STRIKE 3D</div>
+    <button class="btn" data-act="campaign">1 &nbsp; 3D CAMPAIGN<small>One mongoose against wave after wave of vipers and king cobras</small></button>
+    <button class="btn" data-act="duel2p">2 &nbsp; 1v1 ARENA DUEL - 2 PLAYERS<small>Mongoose (WASD) vs Cobra (Arrows), best of 3</small></button>
+    <button class="btn" data-act="duelai">3 &nbsp; ARENA DUEL vs KING COBRA AI<small>Every mongoose power unlocked, one giant cobra</small></button>
+    <button class="btn" data-act="controls">H &nbsp; CONTROLS<small>All keys, controller and touch</small></button>
+    <div class="hint" id="menuBest">Best score 0</div>
+  </div>
+</div>
+
+<div id="controls" class="overlay hidden">
+  <div class="card">
+    <h2>CONTROLS</h2>
+    <table class="keys">
+      <tr><td>WASD (Arrows in Campaign)</td><td>Run - the mongoose is lightning fast</td></tr>
+      <tr><td>F / J / Left click</td><td>Bite leap (head = full damage, body = half)</td></tr>
+      <tr><td>Space / K</td><td>Dodge roll - dodge a strike at the last moment for a COUNTER-STRIKE REFLEX (bullet time, triple bite)</td></tr>
+      <tr><td>Q</td><td>Sonic screech - stuns cobras in front (unlocks Level 2)</td></tr>
+      <tr><td>E</td><td>Tail-whip shockwave - knocks back everything around (Level 3)</td></tr>
+      <tr><td>R</td><td>Antidote boost - cures venom, heals, speed burst (Level 4)</td></tr>
+      <tr><td>C</td><td>Shadow-clone pack - 3 shadow mongooses join the fight (Level 6)</td></tr>
+      <tr><td>X</td><td>Hide in a burrow hole (stand on a hole) - snakes lose you; come out with an AMBUSH bite</td></tr>
+      <tr><td>Arrows (Duel P2)</td><td>Move the cobra</td></tr>
+      <tr><td>Enter / Numpad 0</td><td>Cobra strike</td></tr>
+      <tr><td>Right Shift / Numpad 1</td><td>Cobra venom spit</td></tr>
+      <tr><td>Right Ctrl / Numpad 2</td><td>Cobra burrow ambush</td></tr>
+      <tr><td>/ or Numpad 3</td><td>Cobra hypnotic gaze</td></tr>
+      <tr><td>Mouse wheel</td><td>Camera zoom</td></tr>
+      <tr><td>P / Esc</td><td>Pause &nbsp; | &nbsp; M mute &nbsp; | &nbsp; G graphics quality</td></tr>
+      <tr><td>Controller</td><td>Stick move, A bite, B dodge, X screech, Y whip, LB antidote, RB clones, BACK hide (pad 2 = cobra in duel)</td></tr>
+    </table>
+    <button class="btn" data-act="back">BACK</button>
+  </div>
+</div>
+
+<div id="pause" class="overlay hidden">
+  <div class="card">
+    <div class="title" style="font-size:54px">PAUSED</div>
+    <button class="btn" data-act="resume">RESUME</button>
+    <button class="btn" data-act="controls">CONTROLS</button>
+    <button class="btn" data-act="quit">MAIN MENU</button>
+  </div>
+</div>
+
+<div id="over" class="overlay hidden">
+  <div class="card">
+    <div class="title" id="overTitle" style="font-size:56px">FALLEN IN THE JUNGLE</div>
+    <div class="subtitle" id="overSub" style="letter-spacing:3px;font-size:20px"></div>
+    <button class="btn" data-act="retry">PLAY AGAIN (Enter)</button>
+    <button class="btn" data-act="quit">MAIN MENU (Esc)</button>
+  </div>
+</div>
+
+<div id="touch" class="hidden">
+  <div id="stick"><div id="knob"></div></div>
+  <div id="tbtns">
+    <div class="tb" data-k="screech">SCREECH</div><div class="tb" data-k="whip">TAIL<br>WHIP</div><div class="tb" data-k="antidote">ANTI-<br>DOTE</div>
+    <div class="tb" data-k="hide">HIDE</div><div class="tb" data-k="clones">CLONES</div><div class="tb big" data-k="dodge">DODGE</div><div class="tb big" data-k="bite">BITE</div>
+  </div>
+  <div class="tb" id="tpause" data-k="pause">II</div>
+</div>
+
+<script src="three.min.js"></script>
+<script src="core.js"></script>
+<script src="world.js"></script>
+<script src="models.js"></script>
+<script src="entities.js"></script>
+<script src="game.js"></script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-﻿/* =====================================================================
+/* =====================================================================
    entities.js - gameplay actors.
    Mongoose  : player / shadow clone. Run, bite-leap, dodge-roll, agility,
                counter-strike reflex, screech, tail-whip, antidote, clones.
@@ -27,6 +27,7 @@ class Mongoose {
     this.unlocked = opts.unlocked || { screech: false, whip: false, antidote: false, clones: false };
     this.life = opts.life || 0; this.atkMult = opts.atkMult || 1; this.danceT = 0; this.roll = 0;
     this.fluff = 0;
+    this.hidden = false; this.hideT = 0; this.hideCd = 0; this.ambushT = 0;   // burrow hiding (user, 2026-10-13: 'mongoose can hide in holes')
   }
   get speedNow() { return CFG.M_SPEED * (this.isClone ? 0.85 : 1) * (this.hypnoT > 0 ? 0.3 : 1) * (this.haste > 0 ? 1.35 : 1); }
   nearestSnake(maxD = 999) {
@@ -39,11 +40,13 @@ class Mongoose {
     if (!this.alive) return;
     this.stateT += dt; this.biteCd -= dt; this.invuln -= dt; this.hurtT -= dt; this.haste -= dt; this.counterBuff -= G.realDt;
     for (const k in this.cd) this.cd[k] -= dt;
+    this.hideCd -= dt; this.ambushT -= G.realDt;
     this.agility = Math.min(100, this.agility + CFG.AGI_REGEN * dt);
     if (this.venomT > 0) { this.venomT -= dt; this.hurt(CFG.VENOM_DPS * dt, null, true); if (Math.random() < dt * 8) G.env.glow.emit(this.x + rand(-0.3, 0.3), 0.6, this.z + rand(-0.3, 0.3), 0, 0.8, 0, 0.6, 0.12, 0x7dff3a, 0.8); }
     if (this.hypnoT > 0) this.hypnoT -= dt; else this.hypno = Math.max(0, this.hypno - dt * 0.35);
     if (this.isClone) { this.life -= dt; if (this.life <= 0) { this.vanish(); return; } }
 
+    if (this.state === 'hidden') { this.updateHidden(dt, cmd); return; }
     // --- movement intent
     let mx = cmd.mx || 0, mz = cmd.mz || 0; const ml = Math.hypot(mx, mz); if (ml > 1) { mx /= ml; mz /= ml; }
     if (this.state === 'free' || this.state === 'dance') {
@@ -54,6 +57,7 @@ class Mongoose {
     }
     // --- actions
     if (this.state === 'free') {
+      if (cmd.hide && !this.isClone) { this.tryHide(); if (this.state === 'hidden') return; }
       if (cmd.dodge) this.tryDodge(mx, mz);
       else if (cmd.bite) this.tryBite();
       if (!this.isClone && this.state === 'free') {
@@ -90,13 +94,46 @@ class Mongoose {
   }
   render(dt) {
     const m = this.model;
-    m.group.position.set(this.x, 0, this.z); m.group.rotation.y = yawFor(this.heading);
+    // hidden in a burrow: only the head peeks out of the hole (the ground hides the rest)
+    m.group.position.set(this.x, this.hidden ? -0.8 + 0.05 * Math.sin(G.time * 2.5) : 0, this.z); m.group.rotation.y = yawFor(this.heading);
     const spd = Math.min(1, Math.hypot(this.vx, this.vz) / CFG.M_SPEED);
     const lift = this.state === 'bite' ? Math.sin(this.lunge * Math.PI) * 0.45 : 0;
     const glow = this.isClone ? 0.8 : Math.max(this.counterBuff > 0 ? 1 : 0, this.agility >= 99 ? 0.25 : 0.08, this.state === 'dodge' ? 0.8 : 0);
     m.animate(dt, { speed: this.state === 'dance' ? 0.4 : spd, lift, roll: this.roll, bite: this.state === 'bite' ? this.lunge : 0, fluff: this.state === 'dance' ? 1 : this.fluff, glow, dance: this.state === 'dance', t: G.time });
     if (this.state === 'dance') { m.group.rotation.y += this.danceT * 6; m.root.position.y += Math.abs(Math.sin(this.danceT * 7)) * 0.6; }
+    if (this.hidden) { m.root.rotation.x = -1.2; m.root.position.y = 0; m.neck.rotation.x = 0.95; m.blob.visible = false; }   // stands upright in the burrow: head and neck poke out
+    else m.blob.visible = true;
     m.root.visible = !(this.hurtT > 0 && Math.floor(this.hurtT * 30) % 2 === 0);
+  }
+  nearHole(maxD = 2.2) {
+    let best = null, bd = maxD;
+    for (const h of G.env.holes) { const d = dist2(this.x, this.z, h.x, h.z); if (d < bd) { bd = d; best = h; } }
+    return best;
+  }
+  tryHide() {
+    const h = this.nearHole();
+    if (!h) { G.flash('NO BURROW HERE - run to a hole', '#ffd98a', 0.8); return; }
+    if (this.hideCd > 0) { G.flash('CATCHING BREATH ' + Math.ceil(this.hideCd) + 's', '#ffd98a', 0.6); return; }
+    this.state = 'hidden'; this.stateT = 0; this.hidden = true; this.hideT = 0; this.hole = h;
+    this.x = h.x; this.z = h.z; this.vx = this.vz = 0; this.roll = 0; this.hypno = 0; this.hypnoT = 0;
+    G.env.dust.burst(h.x, 0.15, h.z, 26, 3.5, 0.7, 0.35, [0x8a6a44, 0x6b5034, 0xa88660], { up: 0.8, grav: 6 });
+    SFX.swoosh(0.25); SFX.chatter(0.14);
+    G.flash('HIDDEN IN THE BURROW', '#ffd98a', 0.9);
+  }
+  updateHidden(dt, cmd) {
+    this.hideT += dt;
+    this.agility = Math.min(100, this.agility + 60 * dt);          // gets its breath back fast underground
+    if (this.venomT > 0) this.venomT -= dt;                         // venom wears off twice as fast in the cool earth
+    const s = this.nearestSnake(30);
+    if (s) this.heading += angDiff(this.heading, Math.atan2(s.z - this.z, s.x - this.x)) * Math.min(1, dt * 5);   // peeks out, watching the cobra
+    const out = this.hideT > 0.3 && (cmd.hide || cmd.bite || cmd.dodge || Math.hypot(cmd.mx || 0, cmd.mz || 0) > 0.5);
+    if (out || this.hideT > 4) {
+      this.hidden = false; this.state = 'free'; this.stateT = 0; this.hideCd = 5; this.ambushT = 1.6; this.invuln = 0.25;
+      G.env.dust.burst(this.x, 0.2, this.z, 30, 4.5, 0.7, 0.35, [0x8a6a44, 0x6b5034, 0xa88660], { up: 1, grav: 7 });
+      SFX.swoosh(0.3);
+      if (cmd.bite) this.tryBite();                                  // burst out straight into an ambush bite
+    }
+    this.render(dt);
   }
   tryBite() {
     if (this.biteCd > 0) return;
@@ -114,7 +151,7 @@ class Mongoose {
       if (!s.targetable()) continue;
       const hd = dist2(jx, jz, s.spine(0).x, s.spine(0).z);
       // a reared-up head is out of reach: head bites land when it is low, striking, recovering, stunned, or on a counter
-      const headOpen = s.spine(0).y < 0.75 * s.size || ['strike', 'recover', 'stunned', 'prowl', 'under', 'dead'].includes(s.state) || (this.counterBuff > 0 && !this.isClone);
+      const headOpen = s.spine(0).y < 0.75 * s.size || ['strike', 'recover', 'stunned', 'prowl', 'under', 'dead'].includes(s.state) || (this.counterBuff > 0 && !this.isClone) || this.ambushT > 0;
       if (headOpen && hd < 0.95 * s.size && hd < bestD) { best = s; bestD = hd; head = true; continue; }
       const p = s.closestPart(jx, jz, false);
       if (p.d < 0.75 * s.size && p.d < bestD) { best = s; bestD = p.d; head = false; }
@@ -123,6 +160,7 @@ class Mongoose {
     let dmg = CFG.BITE_DMG * this.atkMult * (head ? 1 : 0.5);
     let crit = false;
     if (this.counterBuff > 0 && !this.isClone) { dmg *= CFG.COUNTER_MULT; crit = true; this.counterBuff = 0; }
+    else if (this.ambushT > 0 && !this.isClone) { dmg *= 1.6; this.ambushT = 0; G.flash('AMBUSH BITE!', '#ffd27a', 0.8); }
     best.takeHit(dmg, head, this, crit);
     SFX.bite(); if (!this.isClone && Math.random() < 0.35) SFX.chatter();
   }
@@ -223,7 +261,7 @@ class Cobra {
   constructor(x, z, opts = {}) {
     this.level = opts.level || 1; this.isBoss = !!opts.boss; this.human = !!opts.human;
     this.size = opts.size || (this.isBoss ? 1.55 : 1.0);
-    const look = opts.look || (this.isBoss ? 'boss' : this.human ? 'p2' : (this.level % 2 === 0 && this.level > 1 && Math.random() < 0.4 ? 'viper' : 'ai'));
+    const look = opts.look || (this.isBoss ? 'boss' : this.human ? 'p2' : ['ai', 'viper', 'p2'][(Math.random() * 3) | 0]);   // green, yellow and red snakes
     this.model = new CobraModel(look, this.size); G.scene.add(this.model.group);
     this.name = COBRA_LOOKS[look].name;
     const L = this.level;
@@ -259,7 +297,7 @@ class Cobra {
   }
   pickTarget() {
     let best = null, bd = 1e9;
-    for (const m of G.mongooses()) { if (!m.alive) continue; const d = dist2(this.x, this.z, m.x, m.z) + (m.isClone ? 1.5 : 0); if (d < bd) { bd = d; best = m; } }
+    for (const m of G.mongooses()) { if (!m.alive || m.hidden) continue; const d = dist2(this.x, this.z, m.x, m.z) + (m.isClone ? 1.5 : 0); if (d < bd) { bd = d; best = m; } }
     return best;
   }
   setState(s) { this.state = s; this.stateT = 0; }
@@ -308,6 +346,9 @@ class Cobra {
           if (this.can.burrow && this.cd.burrow <= 0 && dT > 6) { this.setState('burrow'); this.cd.burrow = rand(9, 14); SFX.rumble(0.8, 0.3); break; }
           // flank instead of beelining - weave in from the side
           want += Math.sin(G.time * 0.7 + this.wob) * 0.5;
+        } else if (G.player && G.player.alive && G.player.hidden) {   // lost it down a hole: slither over and wait, hood half up
+          const d = dist2(this.x, this.z, G.player.x, G.player.z); want = Math.atan2(G.player.z - this.z, G.player.x - this.x) + 0.9;
+          moving = d > 3.4; tRise = 0.6; tHood = 0.6; tEye = 0.4;
         }
         break;
       }
@@ -355,7 +396,7 @@ class Cobra {
         if (tgt) this.aim += angDiff(this.aim, angT) * Math.min(1, dt * 4);
         if (this.stateT < 0.05) SFX.hiss(1.2, 0.15);
         const P = G.player;
-        if (P && P.alive && dist2(this.x, this.z, P.x, P.z) < CFG.HYPNO_RANGE && P.hypnoT <= 0) {
+        if (P && P.alive && !P.hidden && dist2(this.x, this.z, P.x, P.z) < CFG.HYPNO_RANGE && P.hypnoT <= 0) {
           P.hypno += dt * (this.isBoss ? 0.6 : 0.45);
           if (Math.random() < dt * 20) G.env.glow.emit(P.x + rand(-0.4, 0.4), 1.2 + rand(0.4), P.z + rand(-0.4, 0.4), 0, 0.6, 0, 0.8, 0.14, 0xc78cff, 0.8);
           if (P.hypno >= 1) { P.hypnoT = 2.4; P.hypno = 1; P.hypnoBreak = 0; G.flash('HYPNOTISED!', '#e061ff', 0.9); }
@@ -463,7 +504,7 @@ class Cobra {
   }
   resolveStrike() {
     for (const m of G.mongooses()) {
-      if (!m.alive) continue;
+      if (!m.alive || m.hidden) continue;
       let d = 99; for (let i = 0; i < 6; i++) { const q = this.pts[i]; if (q.y < 1.4 * this.size) d = Math.min(d, dist2(q.x, q.z, m.x, m.z)); }
       const hitR = 0.75 + 0.2 * this.size;
       const nearMiss = d < hitR + 2.0;
@@ -567,7 +608,7 @@ class VenomBlob {
     this.mesh.position.set(this.x, this.y, this.z); this.mesh.scale.set(1, 1 + Math.min(1.2, Math.abs(this.vy) * 0.05), 1);
     if (Math.random() < 0.7) G.env.glow.emit(this.x, this.y, this.z, 0, 0, 0, 0.35, 0.12, 0x6aff3a, 0.7);
     for (const m of G.mongooses()) {
-      if (!m.alive) continue;
+      if (!m.alive || m.hidden) continue;
       if (dist2(this.x, this.z, m.x, m.z) < 0.6 && this.y < 1.1) {
         if (m.hurt(this.dmg, this)) { m.poison(CFG.VENOM_TIME); SFX.splat(); }
         this.dead = true; break;

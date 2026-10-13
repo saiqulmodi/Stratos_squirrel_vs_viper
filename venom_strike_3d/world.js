@@ -1,4 +1,4 @@
-/* =====================================================================
+﻿/* =====================================================================
    world.js - the jungle clearing: sky, lights, ground, swaying grass,
    trees, canopy, burrow holes, fireflies & glowing spores, time of day,
    GPU particle system and one-shot visual effects (rings, decals).
@@ -6,12 +6,12 @@
 'use strict';
 
 // Twilight palettes - each level moves the jungle through the day
-const TIME_OF_DAY = [
-  { name: 'Jungle Twilight', skyTop: 0x1b1240, skyMid: 0x7a2f6b, skyLow: 0xff8a3d, fog: 0x3a2433, hemiSky: 0x9b7bd6, hemiGround: 0x4a2f1c, hemi: 0.75, sun: 0xffa060, sunI: 2.1, sunDir: [-30, 18, -20], fire: 1 },
-  { name: 'Moonlit Night', skyTop: 0x050816, skyMid: 0x0e1b3a, skyLow: 0x23406a, fog: 0x0b1324, hemiSky: 0x5d7cc4, hemiGround: 0x1d1a14, hemi: 0.55, sun: 0x9fb8ff, sunI: 1.25, sunDir: [20, 30, -25], fire: 1 },
-  { name: 'Misty Dawn', skyTop: 0x3c5b8a, skyMid: 0xc78fa0, skyLow: 0xffd2a1, fog: 0x8d7f86, hemiSky: 0xd8c6ff, hemiGround: 0x5b4733, hemi: 0.9, sun: 0xffc890, sunI: 2.0, sunDir: [30, 14, 20], fire: 0.25 },
-  { name: 'Golden Afternoon', skyTop: 0x3f86c8, skyMid: 0x9cc6e0, skyLow: 0xffe1a8, fog: 0x9a8e6e, hemiSky: 0xcfe6ff, hemiGround: 0x6b5235, hemi: 1.0, sun: 0xffe2b0, sunI: 2.8, sunDir: [-20, 34, 14], fire: 0 },
-  { name: 'Storm Dusk', skyTop: 0x101418, skyMid: 0x37404a, skyLow: 0x9a6a48, fog: 0x2b2e30, hemiSky: 0x8899aa, hemiGround: 0x2f261c, hemi: 0.65, sun: 0xd8b48a, sunI: 1.5, sunDir: [25, 20, -10], fire: 0.6 },
+const TIME_OF_DAY = [   // vivid palettes (user, 2026-10-13: colours looked faded)
+  { name: 'Golden Jungle Evening', skyTop: 0x2a5bd7, skyMid: 0xff8f5a, skyLow: 0xffd36a, fog: 0xd8a070, hemiSky: 0xcfe8ff, hemiGround: 0x7a5426, hemi: 1.25, sun: 0xffd890, sunI: 2.7, sunDir: [-30, 22, -20], fire: 0.6 },
+  { name: 'Moonlit Night', skyTop: 0x0a1250, skyMid: 0x1e46a8, skyLow: 0x4a86e8, fog: 0x1e3470, hemiSky: 0x8fb0ff, hemiGround: 0x3a3020, hemi: 1.05, sun: 0xcfe0ff, sunI: 2.0, sunDir: [20, 30, -25], fire: 1 },
+  { name: 'Sunrise Jungle', skyTop: 0x4a8ae0, skyMid: 0xff9ab0, skyLow: 0xffe4a8, fog: 0xe0b8b0, hemiSky: 0xf0e8ff, hemiGround: 0x7a5a38, hemi: 1.3, sun: 0xffe0b0, sunI: 2.7, sunDir: [30, 18, 20], fire: 0.2 },
+  { name: 'Bright Afternoon', skyTop: 0x1f78e0, skyMid: 0x7cc4ff, skyLow: 0xd8f0ff, fog: 0xb8dcf0, hemiSky: 0xe0f2ff, hemiGround: 0x8a6634, hemi: 1.35, sun: 0xfff4dc, sunI: 3.0, sunDir: [-20, 34, 14], fire: 0 },
+  { name: 'Purple Dusk', skyTop: 0x30106a, skyMid: 0xd2409a, skyLow: 0xffa848, fog: 0x8a4a7a, hemiSky: 0xe0b0ff, hemiGround: 0x5a3420, hemi: 1.15, sun: 0xffb080, sunI: 2.5, sunDir: [25, 20, -10], fire: 1 },
 ];
 
 // ---------------------------------------------------------------- particles
@@ -80,7 +80,7 @@ class ParticleSystem {
 class Environment {
   constructor(scene) {
     this.scene = scene; this.t = 0; this.uniforms = { uTime: { value: 0 } };
-    this.buildSky(); this.buildLights(); this.buildGround(); this.buildGrass(); this.buildTrees(); this.buildHoles(); this.buildFireflies();
+    this.buildSky(); this.buildLights(); this.buildGround(); this.buildGrass(); this.buildFlowers(); this.buildTrees(); this.buildHoles(); this.buildFireflies();
     this.dust = new ParticleSystem(scene, 1400, false);
     this.glow = new ParticleSystem(scene, 900, true);
     this.fx = [];
@@ -97,7 +97,7 @@ class Environment {
     this.sky = new THREE.Mesh(new THREE.SphereGeometry(400, 32, 16), m); this.scene.add(this.sky);
     this.moon = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.dot, color: 0xfff2d6, fog: false, depthWrite: false }));
     this.moon.scale.set(40, 40, 1); this.scene.add(this.moon);
-    this.scene.fog = new THREE.Fog(0x000000, 30, 95);
+    this.scene.fog = new THREE.Fog(0x000000, 48, 150);
   }
   buildLights() {
     this.hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8); this.scene.add(this.hemi);
@@ -147,13 +147,26 @@ class Environment {
       const x = Math.cos(a) * rr, z = Math.sin(a) * rr, s = rr < CFG.ARENA_R ? 0.5 + r() * 0.6 : 0.8 + r() * 1.6;
       q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), r() * TAU);
       m4.compose(new THREE.Vector3(x, groundH(x, z), z), q, new THREE.Vector3(s, s * (0.8 + r() * 0.8), s)); mesh.setMatrixAt(i, m4);
-      col.setHSL(0.17 + r() * 0.12, 0.45 + r() * 0.25, 0.18 + r() * 0.16); mesh.setColorAt(i, col);
+      col.setHSL(0.2 + r() * 0.13, 0.65 + r() * 0.25, 0.26 + r() * 0.18); mesh.setColorAt(i, col);
     }
     mesh.receiveShadow = true; this.scene.add(mesh); this.grass = mesh;
   }
+  buildFlowers() {   // bright wildflowers ringing the clearing: red, yellow, orange, pink, white blossoms on stems
+    const r = seeded(31), N = 700, m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), col = new THREE.Color();
+    const head = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.11, 0), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, emissive: 0x221100, flatShading: true }), N);
+    const stem = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.012, 0.016, 1, 4).translate(0, 0.5, 0), new THREE.MeshStandardMaterial({ color: 0x3f9a2a }), N);
+    const cols = [0xff2a2a, 0xffd21a, 0xff8a1a, 0xff5ab4, 0xffffff, 0xb04aff, 0xffe066];
+    for (let i = 0; i < N; i++) {
+      const a = r() * TAU, d = CFG.ARENA_R - 4 + Math.pow(r(), 0.7) * 34, x = Math.cos(a) * d, z = Math.sin(a) * d, h = 0.25 + r() * 0.45, y = groundH(x, z);
+      m4.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(1, h, 1)); stem.setMatrixAt(i, m4);
+      const s = 0.7 + r() * 0.8; m4.compose(new THREE.Vector3(x, y + h, z), q, new THREE.Vector3(s, s * 0.6, s)); head.setMatrixAt(i, m4);
+      col.setHex(cols[(r() * cols.length) | 0]); head.setColorAt(i, col);
+    }
+    head.castShadow = false; this.scene.add(stem); this.scene.add(head);
+  }
   buildTrees() {
     const r = seeded(44), bark = new THREE.MeshStandardMaterial({ map: TEX.bark, roughness: 1 });
-    const leafMats = [0x2a4a1e, 0x1f3a17, 0x36592a, 0x24461f].map((c) => new THREE.MeshStandardMaterial({ color: c, map: TEX.leaf, roughness: 0.95, flatShading: true }));
+    const leafMats = [0x4a9a2e, 0x3a8a26, 0x62b23c, 0x2f7a2a].map((c) => new THREE.MeshStandardMaterial({ color: c, map: TEX.leaf, roughness: 0.95, flatShading: true }));
     this.sway = [];
     const tree = (x, z, s) => {
       const g = new THREE.Group(); g.position.set(x, groundH(x, z) - 0.2, z);
@@ -173,14 +186,14 @@ class Environment {
     };
     for (let i = 0; i < 46; i++) { const a = r() * TAU, d = CFG.ARENA_R + 7 + r() * 38; tree(Math.cos(a) * d, Math.sin(a) * d, 0.8 + r() * 0.7); }
     // Bushes, ferns and rocks ring the clearing
-    const bushMat = new THREE.MeshStandardMaterial({ color: 0x2e5524, map: TEX.leaf, roughness: 1, flatShading: true });
+    const bushMat = new THREE.MeshStandardMaterial({ color: 0x4f9a34, map: TEX.leaf, roughness: 1, flatShading: true });
     const rockMat = new THREE.MeshStandardMaterial({ color: 0x6d665c, roughness: 0.9, flatShading: true });
     for (let i = 0; i < 60; i++) {
       const a = r() * TAU, d = CFG.ARENA_R + 1 + r() * 20, x = Math.cos(a) * d, z = Math.sin(a) * d;
       const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.8 + r() * 1.2, 1), bushMat); b.position.set(x, groundH(x, z) + 0.3, z); b.scale.y = 0.65; b.castShadow = true; b.receiveShadow = true; this.scene.add(b);
       this.sway.push({ obj: b, ph: r() * TAU, small: true });
     }
-    const fernMat = new THREE.MeshStandardMaterial({ color: 0x3f7a2c, side: THREE.DoubleSide, roughness: 0.9 });
+    const fernMat = new THREE.MeshStandardMaterial({ color: 0x5cbc3a, side: THREE.DoubleSide, roughness: 0.9 });
     for (let i = 0; i < 40; i++) {
       const a = r() * TAU, d = CFG.ARENA_R - 1 + r() * 10, x = Math.cos(a) * d, z = Math.sin(a) * d, f = new THREE.Group();
       for (let k = 0; k < 7; k++) { const leaf = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 1.4, 1, 4), fernMat); leaf.geometry.translate(0, 0.7, 0); leaf.rotation.set(-0.9 - r() * 0.3, k * TAU / 7, 0, 'YXZ'); f.add(leaf); }

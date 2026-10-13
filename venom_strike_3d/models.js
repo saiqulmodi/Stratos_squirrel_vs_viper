@@ -1,4 +1,4 @@
-﻿/* =====================================================================
+/* =====================================================================
    models.js - procedural 3D animals.
    MongooseModel: grizzled fur body with fur shells, articulated legs,
      jaw, a BIG bushy tail (as long as the body, thick brush) that glows.
@@ -13,8 +13,8 @@ const yawFor = (a) => Math.PI / 2 - a;
 
 // ---------------------------------------------------------------- mongoose
 const MONGOOSE_LOOKS = {
-  p1: { base: '#8a7a66', dark: '#3b3126', light: '#cfc2a8', tip: 0x2a221a, belly: 0xb8a68a, glow: 0x8dfcd0, eye: 0xff9a2a },
-  p2: { base: '#9a5a32', dark: '#40220f', light: '#e0a874', tip: 0x2b160a, belly: 0xd09a6a, glow: 0xffb347, eye: 0xff5a2a },
+  p1: { base: '#d0842a', dark: '#5a2e0c', light: '#ffd890', tip: 0x3a1c08, belly: 0xf2cc8e, glow: 0x8dfcd0, eye: 0xffb020 },   // rich golden-tawny (user: colours were faded)
+  p2: { base: '#cc5626', dark: '#5a1c06', light: '#ffb67a', tip: 0x2a0c04, belly: 0xf2a874, glow: 0xffb347, eye: 0xff5a2a },
   clone: { base: '#2a1f40', dark: '#0d0818', light: '#6c58a8', tip: 0x120c20, belly: 0x3a2d58, glow: 0xb48cff, eye: 0xd8b8ff },
 };
 
@@ -26,7 +26,7 @@ class MongooseModel {
     const furMat = new THREE.MeshStandardMaterial({ map: furTex, roughness: 0.95, transparent: ghost, opacity: ghost ? 0.55 : 1, emissive: ghost ? 0x2a1450 : 0x000000 });
     const bellyMat = new THREE.MeshStandardMaterial({ color: L.belly, map: furTex, roughness: 1, transparent: ghost, opacity: ghost ? 0.55 : 1 });
     const darkMat = new THREE.MeshStandardMaterial({ color: L.tip, roughness: 0.9, transparent: ghost, opacity: ghost ? 0.6 : 1 });
-    const shellMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(L.light), alphaMap: TEX.furAlpha, transparent: true, depthWrite: false, roughness: 1, opacity: ghost ? 0.4 : 0.85 });
+    const shellMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(L.base).lerp(new THREE.Color(L.light), 0.45), alphaMap: TEX.furAlpha, transparent: true, depthWrite: false, roughness: 1, opacity: ghost ? 0.4 : 0.6 });
     this.mats = [furMat, bellyMat, darkMat, shellMat];
     const g = this.group = new THREE.Group();
     const root = this.root = new THREE.Group(); g.add(root);          // root bobs / rolls / leaps
@@ -69,18 +69,18 @@ class MongooseModel {
       add(knee, sph(0.06, 8, 6), darkMat, 0, -0.2, 0.03, 1, 0.6, 1.4);
       this.legs.push({ hip, knee, front, side: Math.sign(lx) });
     }
-    // BIG BUSHY TAIL: 14 fur puffs along a curve - root as thick as the haunch, brush swelling
-    // to ~85% of the body's depth, dark tip; about as long as the body. Glow shell around it.
+    // BIG BUSHY TAIL (user, 2026-10-13: 'tail too small for a mongoose'): 18 fur puffs, ~1.6x the body's length,
+    // root as thick as the haunch, brush swelling wider than the body, dark tip. Glow shell around it.
     this.tail = new THREE.Group(); this.tail.position.set(0, 0.52, -0.6); this.body.add(this.tail);
     this.tailSegs = []; this.tailGlow = [];
     const glowMat = new THREE.MeshBasicMaterial({ color: L.glow, transparent: true, opacity: 0.0, blending: THREE.AdditiveBlending, depthWrite: false });
     this.glowMat = glowMat;
-    const N = 14;
+    const N = 18;
     for (let i = 0; i < N; i++) {
       const t = i / (N - 1);
-      const r = (0.17 + 0.05 * Math.sin(Math.min(1, t * 1.6) * Math.PI)) * (1 - 0.7 * Math.pow(t, 2.2));   // thick root, bushy middle, tapering tip
+      const r = (0.25 + 0.09 * Math.sin(Math.min(1, t * 1.5) * Math.PI)) * (1 - 0.6 * Math.pow(t, 2.4));   // thick root, bushy middle, tapering tip
       const seg = new THREE.Group(); this.tail.add(seg);
-      const m = add(seg, sph(1, 12, 9), t > 0.82 ? darkMat : furMat, 0, 0, 0, r * 1.05, r, r * 1.25, 2);
+      const m = add(seg, sph(1, 12, 9), t > 0.86 ? darkMat : furMat, 0, 0, 0, r * 1.05, r, r * 1.25, 3);
       const gm = new THREE.Mesh(sph(1, 10, 8), glowMat); gm.scale.set(r * 1.18, r * 1.15, r * 1.3); seg.add(gm);
       this.tailSegs.push({ seg, t, r, m }); this.tailGlow.push(gm);
     }
@@ -117,12 +117,12 @@ class MongooseModel {
     const puff = 1 + this.fluff * 0.2;
     // tail: rises in an arc, swishes, flags straight back while running, whirls when dancing
     const wave = pose.dance ? 1.8 : 0.4 + run * 0.2;
-    let px = 0, py = 0, pz = 0, ang = -0.35 + this.fluff * 0.9 - run * 0.25 + (pose.dance ? 0.9 : 0);
+    let px = 0, py = 0, pz = 0, ang = -0.18 + this.fluff * 0.9 - run * 0.25 + (pose.dance ? 0.9 : 0);
     for (let i = 0; i < this.tailSegs.length; i++) {
       const T = this.tailSegs[i], k = T.t;
       const yaw = Math.sin(t * (pose.dance ? 9 : 3.2) - k * 3.2) * wave * k * 0.55;
-      const len = 0.105;
-      ang += (pose.dance ? 0.08 : 0.035) * (1 - this.fluff * 0.5);
+      const len = 0.115;
+      ang += (pose.dance ? 0.065 : 0.03) * (1 - this.fluff * 0.5);
       px += Math.sin(yaw) * len; py += Math.sin(ang) * len; pz -= Math.cos(ang) * Math.cos(yaw) * len;
       T.seg.position.set(px, py, pz);
       T.seg.scale.setScalar(puff * (1 + (k > 0.2 && k < 0.85 ? this.fluff * 0.08 : 0)));
@@ -132,7 +132,7 @@ class MongooseModel {
     const flick = 0.85 + 0.15 * Math.sin(t * 13);
     this.glowMat.opacity = this.glow * 0.16 * flick;
     this.tailLight.intensity = this.glow * 3.2 * flick;
-    this.tailLight.position.copy(this.tailSegs[7].seg.position);
+    this.tailLight.position.copy(this.tailSegs[9].seg.position);
     this.eyeMat.emissiveIntensity = 0.5 + this.glow * 1.6;
     this.blob.scale.setScalar(Math.max(0.4, 1 - pose.lift * 0.35));
     this.blob.position.y = 0.03 - (this.root.position.y);   // stays on the ground
@@ -143,10 +143,10 @@ class MongooseModel {
 
 // ---------------------------------------------------------------- cobra
 const COBRA_LOOKS = {
-  ai:   { body: '#6b5a33', band: '#e6d7a6', belly: '#e8dcb0', dark: '#2a2214', head: 0x5d4d2a, eye: 0xff3b1f, hood: ['#5e4f2c', '#d9c896', '#efe3bd'], name: 'Spectacled Cobra' },
-  viper:{ body: '#9a7a4a', band: '#3b2614', belly: '#e6d4a6', dark: '#2a1a0c', head: 0x7d6038, eye: 0xffb020, hood: ['#8a6b40', '#3b2614', '#e6d4a6'], name: "Russell's Viper" },
-  p2:   { body: '#18181a', band: '#e8c83a', belly: '#f2e08a', dark: '#000000', head: 0x141414, eye: 0x6aff3a, hood: ['#141414', '#e8c83a', '#f2e08a'], name: 'Black King Cobra' },
-  boss: { body: '#3a2a12', band: '#ff9a2a', belly: '#f0c070', dark: '#120a04', head: 0x2e2010, eye: 0xff2a6a, hood: ['#2e200e', '#ff8a1a', '#f6cf86'], name: 'KING COBRA' },
+  ai:   { body: '#1fae3a', band: ['#ffd21f', '#e8231f'], belly: '#fff07a', dark: '#0a1a08', head: 0x1d9a34, eye: 0xffe23a, hood: ['#1a9a32', ['#ffd21f', '#e8231f'], '#fff07a'], name: 'Emerald Cobra' },
+  viper:{ body: '#ffc61a', band: ['#e01e1e', '#18a832'], belly: '#fff3b0', dark: '#1a0c02', head: 0xf0b414, eye: 0xff2a1a, hood: ['#f2b814', ['#e01e1e', '#18a832'], '#fff3b0'], name: 'Golden Viper' },
+  p2:   { body: '#d81c1c', band: ['#ffd21f', '#22c23c'], belly: '#ffe680', dark: '#160404', head: 0xc81818, eye: 0x6aff3a, hood: ['#c81818', ['#ffd21f', '#22c23c'], '#ffe680'], name: 'Ruby Cobra' },
+  boss: { body: '#0f6a2a', band: ['#ffcc00', '#ff2a14', '#7dff3a'], belly: '#ffe066', dark: '#020a03', head: 0x0d5a24, eye: 0xff2a6a, hood: ['#0d5a24', ['#ffcc00', '#ff2a14', '#7dff3a'], '#ffe066'], name: 'KING COBRA' },
 };
 
 class CobraModel {
@@ -159,17 +159,17 @@ class CobraModel {
     const geo = this.geo = new THREE.BufferGeometry();
     this.posArr = new Float32Array(N * (R + 1) * 3);
     const uv = new Float32Array(N * (R + 1) * 2), idx = [];
-    for (let i = 0; i < N; i++) for (let j = 0; j <= R; j++) { const k = i * (R + 1) + j; uv[k * 2] = (i / (N - 1)) * 6; uv[k * 2 + 1] = j / R; }
+    for (let i = 0; i < N; i++) for (let j = 0; j <= R; j++) { const k = i * (R + 1) + j; uv[k * 2] = (i / (N - 1)) * 2.5; uv[k * 2 + 1] = j / R; }
     for (let i = 0; i < N - 1; i++) for (let j = 0; j < R; j++) { const a = i * (R + 1) + j, b = a + R + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
     geo.setAttribute('position', new THREE.BufferAttribute(this.posArr, 3).setUsage(THREE.DynamicDrawUsage));
     geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); geo.setIndex(idx); geo.computeVertexNormals();
     const scaleTex = TEX.scales(L.body, L.band, L.belly, L.dark);
-    this.mat = new THREE.MeshStandardMaterial({ map: scaleTex, bumpMap: scaleTex, bumpScale: 0.6, roughness: 0.42, metalness: 0.08, transparent: false });
+    this.mat = new THREE.MeshStandardMaterial({ map: scaleTex, bumpMap: scaleTex, bumpScale: 0.6, roughness: 0.3, metalness: 0.05, emissive: 0x000000, transparent: false });
     this.mesh = new THREE.Mesh(geo, this.mat); this.mesh.castShadow = true; this.mesh.receiveShadow = true; this.mesh.frustumCulled = false; this.group.add(this.mesh);
     // radius profile: thin neck behind the head, thick body, long tapering tail
     this.radius = []; for (let i = 0; i < N; i++) { const t = i / (N - 1); this.radius.push(size * (t < 0.05 ? 0.1 + t * 1.2 : t < 0.22 ? lerp(0.13, 0.2, (t - 0.05) / 0.17) : t < 0.6 ? 0.2 : lerp(0.2, 0.012, Math.pow((t - 0.6) / 0.4, 0.9)))); }
     // Head
-    const hm = new THREE.MeshStandardMaterial({ color: L.head, map: scaleTex, roughness: 0.35, metalness: 0.1 });
+    const hm = new THREE.MeshStandardMaterial({ color: L.head, roughness: 0.28, metalness: 0.05 });   // solid glossy head in the body colour
     this.head = new THREE.Group(); this.group.add(this.head);
     const skull = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), hm); skull.scale.set(0.17 * size, 0.1 * size, 0.24 * size); skull.position.z = 0.06 * size; skull.castShadow = true; this.head.add(skull);
     const crown = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), hm); crown.scale.set(0.15 * size, 0.07 * size, 0.15 * size); crown.position.set(0, 0.04 * size, 0.02 * size); this.head.add(crown);

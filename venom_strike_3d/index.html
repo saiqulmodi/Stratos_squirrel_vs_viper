@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -66,8 +66,8 @@
   #touch { position: fixed; inset: 0; pointer-events: none; z-index: 4; }
   #stick { position: absolute; left: 26px; bottom: 26px; width: 140px; height: 140px; border-radius: 50%; background: rgba(255,255,255,.07); border: 2px solid rgba(255,214,140,.3); pointer-events: auto; }
   #knob { position: absolute; left: 45px; top: 45px; width: 50px; height: 50px; border-radius: 50%; background: rgba(255,214,140,.45); }
-  #tbtns { position: absolute; right: 18px; bottom: 18px; display: grid; grid-template-columns: repeat(3, 70px); gap: 10px; pointer-events: auto; }
-  .tb { width: 70px; height: 70px; border-radius: 50%; background: rgba(30,20,10,.6); border: 2px solid rgba(255,214,140,.4); color: #ffe7b8; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; text-align: center; }
+  #tbtns { position: absolute; right: 18px; bottom: 18px; display: grid; grid-template-columns: repeat(4, 64px); gap: 10px; pointer-events: auto; }
+  .tb { width: 64px; height: 64px; border-radius: 50%; background: rgba(30,20,10,.6); border: 2px solid rgba(255,214,140,.4); color: #ffe7b8; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; text-align: center; }
   .tb.big { background: rgba(160,60,20,.6); }
   #tpause { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); pointer-events: auto; width: 44px; height: 44px; font-size: 18px; }
 </style>
@@ -127,6 +127,7 @@
       <tr><td>E</td><td>Tail-whip shockwave - knocks back everything around (Level 3)</td></tr>
       <tr><td>R</td><td>Antidote boost - cures venom, heals, speed burst (Level 4)</td></tr>
       <tr><td>C</td><td>Shadow-clone pack - 3 shadow mongooses join the fight (Level 6)</td></tr>
+      <tr><td>X</td><td>Hide in a burrow hole (stand on a hole) - snakes lose you; come out with an AMBUSH bite</td></tr>
       <tr><td>Arrows (Duel P2)</td><td>Move the cobra</td></tr>
       <tr><td>Enter / Numpad 0</td><td>Cobra strike</td></tr>
       <tr><td>Right Shift / Numpad 1</td><td>Cobra venom spit</td></tr>
@@ -134,7 +135,7 @@
       <tr><td>/ or Numpad 3</td><td>Cobra hypnotic gaze</td></tr>
       <tr><td>Mouse wheel</td><td>Camera zoom</td></tr>
       <tr><td>P / Esc</td><td>Pause &nbsp; | &nbsp; M mute &nbsp; | &nbsp; G graphics quality</td></tr>
-      <tr><td>Controller</td><td>Stick move, A bite, B dodge, X screech, Y whip, LB antidote, RB clones (pad 2 = cobra in duel)</td></tr>
+      <tr><td>Controller</td><td>Stick move, A bite, B dodge, X screech, Y whip, LB antidote, RB clones, BACK hide (pad 2 = cobra in duel)</td></tr>
     </table>
     <button class="btn" data-act="back">BACK</button>
   </div>
@@ -162,7 +163,7 @@
   <div id="stick"><div id="knob"></div></div>
   <div id="tbtns">
     <div class="tb" data-k="screech">SCREECH</div><div class="tb" data-k="whip">TAIL<br>WHIP</div><div class="tb" data-k="antidote">ANTI-<br>DOTE</div>
-    <div class="tb" data-k="clones">CLONES</div><div class="tb big" data-k="dodge">DODGE</div><div class="tb big" data-k="bite">BITE</div>
+    <div class="tb" data-k="hide">HIDE</div><div class="tb" data-k="clones">CLONES</div><div class="tb big" data-k="dodge">DODGE</div><div class="tb big" data-k="bite">BITE</div>
   </div>
   <div class="tb" id="tpause" data-k="pause">II</div>
 </div>

@@ -1,4 +1,4 @@
-﻿/* =====================================================================
+/* =====================================================================
    game.js - the Game: renderer, camera, state machine
    (menu -> 3D campaign / 1v1 arena duel -> milestone dance breaks ->
    game over), spawning, scoring, bullet time, HUD and the main loop.
@@ -13,7 +13,7 @@ class Game {
     this.canvas = document.getElementById('game');
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1.45;
+    this.renderer.toneMapping = THREE.LinearToneMapping; this.renderer.toneMappingExposure = 1.0;   // linear keeps colours saturated (ACES washed them out)
     this.quality = store.get('quality', 'high');
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 900);
@@ -49,7 +49,7 @@ class Game {
     store.set('quality', this.quality); this.resize && this.hud.hud && this.resize();
   }
   buildAbilityBar() {
-    const list = [['bite', 'F', '\u{1F9B7}', 'BITE'], ['dodge', 'SPC', '\u{1F4A8}', 'DODGE'], ['screech', 'Q', '\u{1F4E2}', 'SCREECH'], ['whip', 'E', '\u{1F300}', 'TAIL WHIP'], ['antidote', 'R', '\u{1F9EA}', 'ANTIDOTE'], ['clones', 'C', '\u{1F465}', 'CLONES']];
+    const list = [['bite', 'F', '\u{1F9B7}', 'BITE'], ['dodge', 'SPC', '\u{1F4A8}', 'DODGE'], ['screech', 'Q', '\u{1F4E2}', 'SCREECH'], ['whip', 'E', '\u{1F300}', 'TAIL WHIP'], ['antidote', 'R', '\u{1F9EA}', 'ANTIDOTE'], ['clones', 'C', '\u{1F465}', 'CLONES'], ['hide', 'X', '\u{1F573}', 'HIDE']];
     this.abEls = {};
     for (const [k, key, ic, name] of list) {
       const d = document.createElement('div'); d.className = 'ab';
@@ -233,9 +233,10 @@ class Game {
       whip: I.pressed('KeyE') || I.touch.hit.has('whip'),
       antidote: I.pressed('KeyR') || I.touch.hit.has('antidote'),
       clones: I.pressed('KeyC') || I.touch.hit.has('clones'),
+      hide: I.pressed('KeyX') || I.touch.hit.has('hide'),
     };
     const pad = I.pad(0);
-    if (pad) { if (pad.x || pad.z) { cmd.mx = pad.x; cmd.mz = pad.z; } cmd.bite ||= pad.hit.a; cmd.dodge ||= pad.hit.b; cmd.screech ||= pad.hit.x; cmd.whip ||= pad.hit.y; cmd.antidote ||= pad.hit.lb; cmd.clones ||= pad.hit.rb; if (pad.hit.start) this.pauseGame(); }
+    if (pad) { if (pad.x || pad.z) { cmd.mx = pad.x; cmd.mz = pad.z; } cmd.bite ||= pad.hit.a; cmd.dodge ||= pad.hit.b; cmd.screech ||= pad.hit.x; cmd.whip ||= pad.hit.y; cmd.antidote ||= pad.hit.lb; cmd.clones ||= pad.hit.rb; cmd.hide ||= pad.hit.back; if (pad.hit.start) this.pauseGame(); }
     return cmd;
   }
   p2Cmd() {
@@ -297,7 +298,7 @@ class Game {
     this.blobs = this.blobs.filter((b) => !b.dead);
     for (const pd of this.puddles) {
       pd.t -= dt;
-      for (const m of this.mongooses()) if (dist2(m.x, m.z, pd.x, pd.z) < pd.r && m.state !== 'dodge') { m.hurt(5 * dt, null, true); m.poison(2); }
+      for (const m of this.mongooses()) if (!m.hidden && dist2(m.x, m.z, pd.x, pd.z) < pd.r && m.state !== 'dodge') { m.hurt(5 * dt, null, true); m.poison(2); }
     }
     this.puddles = this.puddles.filter((pd) => pd.t > 0);
     if (playing) {
@@ -354,7 +355,7 @@ class Game {
     let vig = '', vo = 0;
     if (this.slowT > 0) { vig = 'radial-gradient(ellipse at center, rgba(0,0,0,0) 45%, rgba(40,255,200,.35))'; vo = 1; }
     else if (p.hypnoT > 0 || p.hypno > 0.3) { vig = 'radial-gradient(ellipse at center, rgba(0,0,0,0) 35%, rgba(170,60,255,.55))'; vo = Math.max(p.hypno, p.hypnoT > 0 ? 1 : 0); }
-    else if (p.venomT > 0) { vig = 'radial-gradient(ellipse at center, rgba(0,0,0,0) 50%, rgba(60,220,30,.4))'; vo = 0.6 + 0.4 * Math.sin(this.realTime * 6); }
+    else if (p.venomT > 0) { vig = 'radial-gradient(ellipse at center, rgba(0,0,0,0) 50%, rgba(60,220,30,.3))'; vo = 0.45 + 0.3 * Math.sin(this.realTime * 6); }
     else if (p.hurtT > 0) { vig = 'radial-gradient(ellipse at center, rgba(0,0,0,0) 50%, rgba(220,20,20,.5))'; vo = p.hurtT / 0.4; }
     if (vig) h.vignette.style.background = vig; h.vignette.style.opacity = vo;
     if (this.mode === 'campaign') {
@@ -374,7 +375,7 @@ class Game {
     h.bossPanel.classList.toggle('hidden', !boss);
     if (boss) { h.bossName.textContent = (this.mode === 'duel2p' ? 'P2  ' : '') + boss.name.toUpperCase(); h.bossFill.style.width = (100 * boss.hp / boss.maxHp).toFixed(1) + '%'; }
     // ability bar
-    const cdInfo = { bite: [p.biteCd, CFG.BITE_CD, true], dodge: [p.agility < CFG.DODGE_COST ? (CFG.DODGE_COST - p.agility) / CFG.AGI_REGEN : 0, CFG.DODGE_COST / CFG.AGI_REGEN, true], screech: [p.cd.screech, CFG.SCREECH_CD, p.unlocked.screech], whip: [p.cd.whip, CFG.WHIP_CD, p.unlocked.whip], antidote: [p.cd.antidote, CFG.ANTIDOTE_CD, p.unlocked.antidote], clones: [p.cd.clones, CFG.CLONE_CD, p.unlocked.clones] };
+    const cdInfo = { bite: [p.biteCd, CFG.BITE_CD, true], dodge: [p.agility < CFG.DODGE_COST ? (CFG.DODGE_COST - p.agility) / CFG.AGI_REGEN : 0, CFG.DODGE_COST / CFG.AGI_REGEN, true], screech: [p.cd.screech, CFG.SCREECH_CD, p.unlocked.screech], whip: [p.cd.whip, CFG.WHIP_CD, p.unlocked.whip], antidote: [p.cd.antidote, CFG.ANTIDOTE_CD, p.unlocked.antidote], clones: [p.cd.clones, CFG.CLONE_CD, p.unlocked.clones], hide: [p.hidden ? 0 : (p.hideCd > 0 ? p.hideCd : (p.nearHole() ? 0 : 0.001)), 5, true] };
     for (const k in cdInfo) {
       const [cd, max, un] = cdInfo[k], e = this.abEls[k];
       e.el.classList.toggle('locked', !un); e.el.classList.toggle('ready', un && cd <= 0);

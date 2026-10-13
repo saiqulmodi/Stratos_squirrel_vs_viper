@@ -1,4 +1,4 @@
-﻿/* =====================================================================
+/* =====================================================================
    MODIS MONGOOSE: VENOM STRIKE 3D  -  core.js
    Config, maths helpers, the procedural RetroSoundEngine, input polling
    (keyboard / mouse / touch / gamepads) and procedural canvas textures.
@@ -269,6 +269,10 @@ function canvasTex(w, h, paint, repeat) {
   if (repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; }
   t.anisotropy = 4; return t;
 }
+function shade(hex, k) {   // brighten (k > 1) or darken (k < 1) a '#rrggbb' colour
+  const n = parseInt(hex.slice(1), 16), f = (v) => Math.max(0, Math.min(255, Math.round(v * k)));
+  return '#' + ((f(n >> 16) << 16) | (f((n >> 8) & 255) << 8) | f(n & 255)).toString(16).padStart(6, '0');
+}
 function speckle(g, w, h, n, cols, rmin, rmax, r) {
   for (let i = 0; i < n; i++) { g.fillStyle = cols[(r() * cols.length) | 0]; g.globalAlpha = 0.25 + r() * 0.6; g.beginPath(); g.arc(r() * w, r() * h, rmin + r() * (rmax - rmin), 0, TAU); g.fill(); }
   g.globalAlpha = 1;
@@ -290,9 +294,24 @@ function buildTextures() {
     for (let i = 0; i < 5200; i++) { g.fillStyle = `rgba(255,255,255,${0.4 + r() * 0.6})`; g.fillRect(r() * w, r() * h, 1 + r() * 1.5, 1 + r() * 1.5); }
   }, true);
   // Cobra scales: banded body, overlapping scale lattice, pale belly (v = 0.75 is the belly)
+  // bands: one colour or a list cycled down the body (user, 2026-10-13: bright yellow / red / green snakes)
   TEX.scales = (body, band, belly, dark) => canvasTex(1024, 128, (g, w, h) => {
-    g.fillStyle = body; g.fillRect(0, 0, w, h);
-    for (let x = 0; x < w; x += 64) { g.fillStyle = band; g.globalAlpha = 0.85; g.fillRect(x + 40, 0, 14, h); g.fillStyle = dark; g.globalAlpha = 0.5; g.fillRect(x + 36, 0, 4, h); g.fillRect(x + 54, 0, 4, h); }
+    const bands = Array.isArray(band) ? band : [band];
+    const grdB = g.createLinearGradient(0, 0, 0, h);                 // glossy: lighter along the back (v = 0.25)
+    grdB.addColorStop(0, body); grdB.addColorStop(0.25, shade(body, 1.35)); grdB.addColorStop(0.5, body); grdB.addColorStop(1, body);
+    g.fillStyle = grdB; g.fillRect(0, 0, w, h);
+    for (let x = 0, k = 0; x < w; x += 64, k++) {
+      const c = bands[k % bands.length];
+      g.fillStyle = dark; g.fillRect(x + 33, 0, 26, h);               // black edging makes the colours pop
+      g.fillStyle = c; g.fillRect(x + 36, 0, 20, h);
+      g.fillStyle = shade(c, 1.3); g.fillRect(x + 40, 0, 12, h);
+    }
+    for (let x = 0, k = 0; x < w; x += 32, k++) {                       // jewel diamonds down the spine
+      if (k % 2 === 1) continue;
+      const c = bands[(k / 2 + 1) % bands.length], cy = h * 0.25;
+      g.fillStyle = dark; g.beginPath(); g.moveTo(x + 4, cy); g.lineTo(x + 16, cy - 17); g.lineTo(x + 28, cy); g.lineTo(x + 16, cy + 17); g.closePath(); g.fill();
+      g.fillStyle = c; g.beginPath(); g.moveTo(x + 8, cy); g.lineTo(x + 16, cy - 11); g.lineTo(x + 24, cy); g.lineTo(x + 16, cy + 11); g.closePath(); g.fill();
+    }
     g.globalAlpha = 1;
     const by = h * 0.75; const grd = g.createLinearGradient(0, by - 26, 0, by + 26);
     grd.addColorStop(0, 'rgba(0,0,0,0)'); grd.addColorStop(0.35, belly); grd.addColorStop(0.65, belly); grd.addColorStop(1, 'rgba(0,0,0,0)');
@@ -302,16 +321,18 @@ function buildTextures() {
     g.fillStyle = 'rgba(255,255,255,0.08)'; for (let y = 0; y < h; y += 8) for (let x = (y / 8) % 2 ? 4 : 0; x < w; x += 8) g.fillRect(x + 3, y + 1, 2, 1);
   }, true);
   TEX.hood = (body, band, belly) => canvasTex(256, 256, (g, w, h) => {
+    const bands = Array.isArray(band) ? band : [band];
     g.fillStyle = body; g.fillRect(0, 0, w, h);
     g.fillStyle = belly; g.beginPath(); g.ellipse(w / 2, h / 2, w * 0.3, h * 0.42, 0, 0, TAU); g.fill();
-    g.strokeStyle = band; g.lineWidth = 9; for (let k = 0; k < 4; k++) { g.beginPath(); g.ellipse(w / 2, h * 0.55, w * (0.12 + k * 0.09), h * (0.15 + k * 0.08), 0, Math.PI * 1.1, Math.PI * 1.9); g.stroke(); }
+    g.lineWidth = 11; for (let k = 0; k < 4; k++) { g.strokeStyle = bands[k % bands.length]; g.beginPath(); g.ellipse(w / 2, h * 0.55, w * (0.12 + k * 0.09), h * (0.15 + k * 0.08), 0, Math.PI * 1.1, Math.PI * 1.9); g.stroke(); }
     g.fillStyle = '#111'; g.beginPath(); g.ellipse(w * 0.38, h * 0.42, 18, 24, 0, 0, TAU); g.ellipse(w * 0.62, h * 0.42, 18, 24, 0, 0, TAU); g.fill();   // spectacle mark
     g.fillStyle = belly; g.beginPath(); g.ellipse(w * 0.38, h * 0.42, 8, 11, 0, 0, TAU); g.ellipse(w * 0.62, h * 0.42, 8, 11, 0, 0, TAU); g.fill();
   });
   // Jungle floor: dry earth, darker blotches, pebbles, cracks, fallen leaves
   TEX.ground = canvasTex(1024, 1024, (g, w, h) => {
-    const r = seeded(3); g.fillStyle = '#5b4631'; g.fillRect(0, 0, w, h);
-    speckle(g, w, h, 900, ['#4a3826', '#6b5238', '#3e2f20', '#735a3e'], 6, 36, r);
+    const r = seeded(3); g.fillStyle = '#86562c'; g.fillRect(0, 0, w, h);
+    speckle(g, w, h, 900, ['#734824', '#9a6a3a', '#6a4220', '#a8763e', '#7a5028', '#946034'], 6, 36, r);   // rich red earth
+    speckle(g, w, h, 140, ['#5c7a26', '#4f6e22'], 2, 7, r);                                                 // a little moss
     speckle(g, w, h, 5000, ['#85694a', '#2f241a', '#9a8061', '#4d3b28'], 0.6, 2.4, r);
     g.strokeStyle = 'rgba(30,20,12,.55)'; g.lineWidth = 1.4;
     for (let i = 0; i < 70; i++) { let x = r() * w, y = r() * h; g.beginPath(); g.moveTo(x, y); for (let k = 0; k < 6; k++) { x += (r() - 0.5) * 40; y += (r() - 0.5) * 40; g.lineTo(x, y); } g.stroke(); }
@@ -330,8 +351,8 @@ function buildTextures() {
     speckle(g, w, h, 160, ['#4f6b2a', '#3a5220'], 1, 4, r);   // moss
   }, true);
   TEX.leaf = canvasTex(256, 256, (g, w, h) => {
-    const r = seeded(9); g.fillStyle = '#23401c'; g.fillRect(0, 0, w, h);
-    speckle(g, w, h, 1400, ['#2f5a22', '#1a3014', '#3d6e2a', '#4c7d2f', '#16260f'], 3, 12, r);
+    const r = seeded(9); g.fillStyle = '#3f8a2a'; g.fillRect(0, 0, w, h);
+    speckle(g, w, h, 1400, ['#4fa232', '#2a6a1c', '#62b83e', '#7cc84a', '#2f7a22'], 3, 12, r);
   }, true);
   TEX.dot = canvasTex(64, 64, (g, w, h) => {
     const grd = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
