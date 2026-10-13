@@ -1025,19 +1025,32 @@ class SquirrelPlayer(Fighter):
         shadow.center = (int(ox + (-6 - MONGOOSE_ORIGIN) * L * S * f), int(self.y + (yt + legl + 1) * S))
         pygame.draw.ellipse(surface, (34, 26, 17), shadow)            # shadow on the ground (stays down in a leap)
 
-        # Tail: long and tapering, fur puffed up the way a mongoose fluffs it against a snake
-        # Tail half as thin again (user, 2026-10-10: "tail is still big, thinner by 1/2"): a fine line,
-        # 2 px at the root and 1 px for the rest, dark-tipped; it straightens out behind in a leap.
+        # Tail: long, bushy and tapering, fur puffed up the way a mongoose fluffs it against a snake
+        # (user, 2026-10-13: "tail of mongoose looks very tiny/small"): thick at the root (~3/4 of the
+        # body's depth), tapering to a dark tip, puffing up to 1.5x when it bristles; straight behind in a leap.
         tw = 0.3 if lift else 1.0
         tail = [(-38, -0.5), (-50, wave * 1.0 * tw), (-62, 1.5 * tw + wave * 2.0 * tw), (-74, tw + wave * 3.0 * tw), (-84, -0.5 + wave * 3.5 * tw)]
         pts = [at(*p) for p in tail]
-        root = max(2 if fluff > 0.5 or S >= 1.0 else 1, round(B * S / 4))        # tail stays 1/8 of the body's width
-        pygame.draw.line(surface, fur, pts[0], pts[1], root)
-        pygame.draw.lines(surface, fur, False, pts[1:4], max(1, round(B * S / 6)))
-        pygame.draw.line(surface, tip, pts[3], pts[4], 1)
-        for k in (range(1, 4) if fluff > 0.2 and detail else ()):         # a few tail hairs only when it bristles
-            hx, hy = pts[k]
-            pygame.draw.line(surface, dark, (hx, hy), (hx - int(2 * S * f), hy - int(2 * fluff * S)), 1)
+        tpuff = 1.0 + 0.5 * fluff
+        r0, r1 = max(2.0, B * S * 0.75 * tpuff), max(1.0, B * S * 0.3 * tpuff)
+        steps = 18
+        tail_pts = []
+        for k in range(steps + 1):
+            u = k / steps * (len(pts) - 1)
+            i = min(int(u), len(pts) - 2)
+            fr = u - i
+            px = pts[i][0] + (pts[i + 1][0] - pts[i][0]) * fr
+            py = pts[i][1] + (pts[i + 1][1] - pts[i][1]) * fr
+            tail_pts.append((px, py, r0 + (r1 - r0) * (k / steps) ** 0.8, k / steps))
+        for px, py, r, t in tail_pts:                                      # dark outline first
+            pygame.draw.circle(surface, outline, (int(px), int(py)), int(r + 1))
+        for px, py, r, t in tail_pts:
+            pygame.draw.circle(surface, tip if t > 0.8 else fur, (int(px), int(py)), int(max(1, r)))
+        if detail:                                                         # grizzled fur hairs along the brush
+            for px, py, r, t in tail_pts[2:-2:2]:
+                ln = r * (0.9 + 0.6 * fluff)
+                pygame.draw.line(surface, dark, (int(px), int(py - r * 0.4)), (int(px - ln * 0.5 * f), int(py - ln)), 1)
+                pygame.draw.line(surface, light, (int(px), int(py + r * 0.3)), (int(px - ln * 0.4 * f), int(py + ln * 0.8)), 1)
 
         def leg(hx, phase, col):
             sw = stride * 7 * phase
