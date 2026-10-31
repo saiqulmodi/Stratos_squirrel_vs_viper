@@ -7,6 +7,38 @@ import asyncio
 from array import array
 import pygame
 
+
+# ---- Stratos analytics (rule: C:\Users\saiqu\GAME_ANALYTICS_RULE.md) ----
+# level_start starts the clock; level_complete / game_over also carry `seconds`
+# = how long that game lasted. Only the stratos.games play page has window.Stratos;
+# anywhere else (desktop, APK, GitHub Pages) nothing is sent and nothing can break.
+_track_started = 0.0
+
+
+def track(name, **details):
+    global _track_started
+    try:
+        import time as _time
+        if name == "level_start":
+            _track_started = _time.time()
+        elif name in ("level_complete", "game_over") and _track_started and "seconds" not in details:
+            details["seconds"] = int(round(_time.time() - _track_started))
+        if sys.platform != "emscripten":
+            return
+        import json, platform
+        w = platform.window
+        s = w.Stratos
+        if not s:
+            try:
+                s = w.parent.Stratos
+            except Exception:
+                s = None
+        if s:
+            s.track(name, w.JSON.parse(json.dumps(details)))
+    except Exception:
+        pass
+
+
 GAME_NAME = "Survival - Mongoose vs Viper"
 GAME_VERSION = "v15 MOBILE"
 
@@ -2876,7 +2908,10 @@ async def main():
         humans playing against AI get +10% on top (HP, DEF, ATK, speed)."""
         stop_all_sound()
         level = max(1, level)
+        if not game_over and level > level_state.get("level", 0) > 0:
+            track("level_complete", level=level_state["level"], mode=game_mode)   # analytics: level beaten (+ seconds)
         level_state["level"] = level
+        track("level_start", level=level, mode=game_mode)   # analytics: a level starts
         pack = pack_size(level, len(players))
         squirrels_get_edge = game_mode in (1, 2)
         for i, p in enumerate(players):
@@ -3805,9 +3840,11 @@ async def main():
 
             if game_mode in (1, 2) and all(p.hp <= 0 for p in players):
                 game_over = True
+                track("game_over", level=level_state["level"], mode=game_mode, score=players[0].score)   # analytics (+ seconds)
                 update_high_score(players[0].score)
             if game_mode in (4, 5) and not vipers and not reserve and not wave_state["pending"] and not bursts:
                 game_over = True       # the whole viper pack is gone (after its last burst has played)
+                track("game_over", level=level_state["level"], mode=game_mode)   # analytics (+ seconds)
 
         # ---------------- RENDER ----------------
         current_level = level_state["level"]
